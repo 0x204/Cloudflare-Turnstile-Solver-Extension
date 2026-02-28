@@ -1,9 +1,19 @@
 const origins = ["https://challenges.cloudflare.com", "http://challenges.cloudflare.com"];
-const r = (a, b) => a + Math.random() * (b - a) | 0;
+const screenDelta = { x: 80 + Math.random() * 200 | 0, y: 60 + Math.random() * 100 | 0 };
+const screenCache = new WeakMap();
+
+function getScreen(e) {
+  let s = screenCache.get(e);
+  if (!s) {
+    s = { x: e.clientX + screenDelta.x, y: e.clientY + screenDelta.y };
+    screenCache.set(e, s);
+  }
+  return s;
+}
 
 Object.defineProperties(MouseEvent.prototype, {
-  screenX: { value: r(800, 1200) },
-  screenY: { value: r(400, 600) }
+  screenX: { get() { return getScreen(this).x; }, configurable: true },
+  screenY: { get() { return getScreen(this).y; }, configurable: true }
 });
 
 window.addEventListener("message", e => {

@@ -4,7 +4,6 @@
   "version": "1.0",
   "description": "github.com/0x204",
   "permissions": ["debugger", "tabs"],
-  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
