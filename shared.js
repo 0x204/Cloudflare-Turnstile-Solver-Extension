@@ -1,106 +1,59 @@
-(() => {
-	"use strict";
+"use strict";
 
-	const CHALLENGE_ORIGINS = Object.freeze([
+// Used by both the content script and the service worker.
+globalThis.TurnstileShared = (() => {
+	const BEGIN = "turnstile:begin";
+	const END = "turnstile:end";
+
+	const CHALLENGE_ORIGINS = new Set([
 		"https://challenges.cloudflare.com",
 		"https://challenges.fed.cloudflare.com",
 		"https://challenges-staging.cloudflare.com"
 	]);
-	const challengeOrigins = new Set(CHALLENGE_ORIGINS);
-	const MESSAGE_SOURCE = "cloudflare-challenge";
-	const BEGIN_ACTION = "turnstile:begin";
-	const END_ACTION = "turnstile:end";
-	const END_EVENTS = new Set([
+
+	// An event ends the widget if any word of its name is one of these, so
+	// "interactiveTimeout", "tokenExpired" or an unknown "widgetFailure" all count.
+	const FINAL_WORDS = new Set([
 		"complete",
 		"error",
 		"expired",
 		"fail",
 		"failure",
-		"interactiveEnd",
-		"interactiveFail",
-		"interactiveTimeout",
-		"refreshRequest",
+		"refresh",
 		"reject",
-		"reloadRequest",
-		"timeout",
-		"tokenExpired",
-		"widgetStale"
-	]);
-	// Progress / non-terminal events that must never stop an in-flight solve.
-	const IGNORE_EVENTS = new Set([
-		"interactiveBegin",
-		"requestExtraParams",
-		"translationInit"
+		"reload",
+		"stale",
+		"timeout"
 	]);
 
-	function isAllowedChallengeOrigin(value) {
-		return typeof value === "string" && challengeOrigins.has(value);
+	function isFinalEvent(name) {
+		if (name === "interactiveEnd") return true;
+		return name.split(/[-_]|(?=[A-Z])/).some((word) => FINAL_WORDS.has(word.toLowerCase()));
 	}
 
-	function isAllowedChallengeUrl(value) {
-		if (typeof value !== "string" || value.length === 0) return false;
+	function isChallengeUrl(value) {
 		try {
-			const url = new URL(value);
-			return url.protocol === "https:" && challengeOrigins.has(url.origin);
+			return CHALLENGE_ORIGINS.has(new URL(value).origin);
 		} catch {
 			return false;
 		}
 	}
 
-	function isValidWidgetId(value) {
-		return typeof value === "string"
-			&& value.length > 0
-			&& value.length <= 128
-			&& /^[A-Za-z0-9._:-]+$/.test(value);
+	function isWidgetId(value) {
+		return typeof value === "string" && /^[\w.:-]{1,128}$/.test(value);
 	}
 
-	function iframeIdFor(widgetId) {
-		return isValidWidgetId(widgetId) ? `cf-chl-widget-${widgetId}` : null;
+	// Turns a postMessage from a Turnstile iframe into a message for the service worker.
+	function parseChallengeMessage(event, ownWindow) {
+		if (!event.isTrusted || event.source === ownWindow || !CHALLENGE_ORIGINS.has(event.origin)) return null;
+
+		const { source, widgetId, event: name } = event.data ?? {};
+		if (source !== "cloudflare-challenge" || !isWidgetId(widgetId) || typeof name !== "string") return null;
+
+		if (name === "interactiveBegin") return { action: BEGIN, widgetId };
+		if (isFinalEvent(name)) return { action: END, widgetId };
+		return null;
 	}
 
-	function isTerminalChallengeEvent(name) {
-		if (typeof name !== "string" || name.length === 0) return false;
-		if (END_EVENTS.has(name)) return true;
-		if (IGNORE_EVENTS.has(name)) return false;
-		// Future-proof: unknown Cloudflare events that look terminal still end the job.
-		return /(?:^|[-_])(?:fail|failure|timeout|expired|stale|reject|reload|refresh|complete|error)(?:$|[-_])/i.test(name);
-	}
-
-	function parseChallengeEvent(event, ownWindow) {
-		if (!event || event.isTrusted !== true) return null;
-		if (!event.source || event.source === ownWindow) return null;
-		if (!isAllowedChallengeOrigin(event.origin)) return null;
-
-		const data = event.data;
-		if (!data || typeof data !== "object") return null;
-		if (data.source !== MESSAGE_SOURCE || !isValidWidgetId(data.widgetId)) return null;
-
-		let action = null;
-		if (data.event === "interactiveBegin") action = BEGIN_ACTION;
-		else if (isTerminalChallengeEvent(data.event)) action = END_ACTION;
-		if (!action) return null;
-
-		return { action, widgetId: data.widgetId };
-	}
-
-	const api = Object.freeze({
-		BEGIN_ACTION,
-		CHALLENGE_ORIGINS,
-		END_ACTION,
-		MESSAGE_SOURCE,
-		iframeIdFor,
-		isAllowedChallengeOrigin,
-		isAllowedChallengeUrl,
-		isValidWidgetId,
-		parseChallengeEvent
-	});
-
-	Object.defineProperty(globalThis, "TurnstileShared", {
-		value: api,
-		configurable: false,
-		enumerable: false,
-		writable: false
-	});
-
-	if (typeof module === "object" && module?.exports) module.exports = api;
+	return { BEGIN, END, isChallengeUrl, isWidgetId, parseChallengeMessage };
 })();

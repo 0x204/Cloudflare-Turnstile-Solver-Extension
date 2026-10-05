@@ -1,17 +1,12 @@
-(() => {
-	"use strict";
+"use strict";
 
-	const shared = globalThis.TurnstileShared;
-	if (!shared) return;
+addEventListener("message", (event) => {
+	const message = TurnstileShared.parseChallengeMessage(event, window);
+	if (!message) return;
 
-	window.addEventListener("message", (event) => {
-		const message = shared.parseChallengeEvent(event, window);
-		if (!message) return;
-
-		try {
-			void chrome.runtime.sendMessage(message).catch(() => {});
-		} catch {
-			// The extension may have been reloaded while this document stayed open.
-		}
-	});
-})();
+	try {
+		chrome.runtime.sendMessage(message).catch(() => {});
+	} catch {
+		// The extension was reloaded and this page still runs the old content script.
+	}
+});
