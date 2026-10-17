@@ -84,6 +84,20 @@ describe("solver against a local Turnstile mock", { concurrency: 3, timeout: 60_
 		});
 	}
 
+	for (const shadowMode of ["open", "closed"]) {
+		it(`finds a widget in ${shadowMode} shadow DOM`, async (t) => {
+			const scenario = await openScenario(t, { shadowMode });
+			const [click] = await scenario.waitForClicks(1);
+			assertCheckboxClick(click);
+		});
+	}
+
+	it("finds a widget in closed shadow DOM of a cross-origin frame", async (t) => {
+		const scenario = await openScenario(t, { depth: 1, shadowMode: "closed" });
+		const [click] = await scenario.waitForClicks(1);
+		assertCheckboxClick(click);
+	});
+
 	it("keeps going when the page changes its URL without reloading", async (t) => {
 		const scenario = await openScenario(t, { changeUrl: true });
 		const [click] = await scenario.waitForClicks(1);

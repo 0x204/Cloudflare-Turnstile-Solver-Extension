@@ -9,8 +9,18 @@ function challengeFrame() {
 		style="width:300px;height:65px;border:0"></iframe>`;
 }
 
+function mount(html, shadowMode) {
+	if (!shadowMode) return html;
+	return `<div></div>
+	<script>
+		document.currentScript.previousElementSibling
+			.attachShadow({ mode: "${shadowMode}" })
+			.innerHTML = ${JSON.stringify(html)};
+	</script>`;
+}
+
 function frameAt(level, layout) {
-	if (level === layout.depth) return challengeFrame();
+	if (level === layout.depth) return mount(challengeFrame(), layout.shadowMode);
 	const width = 480 - level * 60;
 	const height = 280 - level * 80;
 	return `<iframe src="https://embed${level + 1}.test/"
@@ -81,12 +91,13 @@ export function scenarioRoutes({
 	depth = 0,
 	spacer = 200,
 	innerSpacer = 0,
+	shadowMode = null,
 	changeUrl = false,
 	navigate = false,
 	clicksToSolve = 1,
 	endEarly = false,
 }) {
-	const layout = { depth, spacer, innerSpacer, changeUrl, navigate };
+	const layout = { depth, spacer, innerSpacer, shadowMode, changeUrl, navigate };
 	return {
 		"https://host.test/**": hostPage(layout),
 		"https://embed1.test/**": embedPage(1, layout),

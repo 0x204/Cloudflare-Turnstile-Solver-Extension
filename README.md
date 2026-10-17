@@ -21,8 +21,7 @@ While a widget is being handled, Chrome shows a banner saying that the extension
 
 ## Limitations
 
-- Widgets rendered inside a shadow root are not detected.
-- `.main-wrapper` support is on the to-do list.
+The extension finds and clicks the checkbox, including on full-page challenges, inside shadow DOM and inside nested cross-origin frames. Whether Cloudflare accepts the result is decided by its own checks of the browser and the network. Headless or automated browsers are usually rejected after the click.
 
 ## Development
 
