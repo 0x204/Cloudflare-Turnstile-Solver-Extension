@@ -1,0 +1,23 @@
+{
+	"name": "cloudflare-turnstile-solver-extension",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\"",
+		"test:e2e": "node --test \"test/e2e/*.test.js\"",
+		"lint": "eslint .",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"check": "npm run lint && npm run format:check && npm test"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"eslint": "^10.13.0",
+		"globals": "^17.13.0",
+		"playwright": "^1.64.1",
+		"prettier": "^3.9.10"
+	}
+}
