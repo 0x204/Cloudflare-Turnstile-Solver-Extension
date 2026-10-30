@@ -4,9 +4,11 @@ export const CHECKBOX = { left: 16, top: 20, size: 28 };
 
 const CHALLENGE_URL = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/e2e";
 
-function challengeFrame() {
-	return `<iframe id="cf-chl-widget-${WIDGET_ID}" src="${CHALLENGE_URL}"
-		style="width:300px;height:65px;border:0"></iframe>`;
+function challengeFrame(layout) {
+	const frame = `<iframe id="cf-chl-widget-${WIDGET_ID}" src="${CHALLENGE_URL}"
+		style="width:${layout.widgetWidth}px;height:65px;border:0;margin-left:${layout.widgetOffset}px"></iframe>`;
+	if (!layout.widgetWrapper) return frame;
+	return `<div style="${layout.widgetWrapper}">${frame}</div>`;
 }
 
 function mount(html, shadowMode) {
@@ -20,11 +22,13 @@ function mount(html, shadowMode) {
 }
 
 function frameAt(level, layout) {
-	if (level === layout.depth) return mount(challengeFrame(), layout.shadowMode);
-	const width = 480 - level * 60;
+	if (level === layout.depth) return mount(challengeFrame(layout), layout.shadowMode);
+	const width = layout.embedWidth ?? 480 - level * 60;
 	const height = 280 - level * 80;
-	return `<iframe src="https://embed${level + 1}.test/"
+	const frame = `<iframe src="https://embed${level + 1}.test/"
 		style="width:${width}px;height:${height}px;border:3px solid #999"></iframe>`;
+	if (level > 0 || !layout.embedWrapper) return frame;
+	return `<div style="${layout.embedWrapper}">${frame}</div>`;
 }
 
 function hostPage(layout) {
@@ -36,15 +40,26 @@ function hostPage(layout) {
 	<p style="height:800px">Content below the widget</p>
 	<script>
 		window.__clicks = [];
+		window.__overlayClicks = 0;
 		addEventListener("message", ({ data }) => {
 			if (data?.source === "e2e-report") window.__clicks.push(data.click);
 			if (data?.event !== "interactiveBegin" || location.pathname !== "/") return;
 			if (${layout.changeUrl}) {
-				setTimeout(() => history.pushState({}, "", "/step-2"), 50);
-				setTimeout(() => (location.hash = "done"), 150);
+				history.pushState({}, "", "/step-2");
+				location.hash = "done";
 			}
 			if (${layout.navigate}) setTimeout(() => location.assign("/next"), 50);
+			if (${layout.removeWidget}) {
+				document.querySelector("iframe[id^='cf-chl-widget-']").remove();
+			}
 		});
+		if (${layout.overlayMs} > 0) {
+			const overlay = document.createElement("div");
+			overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1";
+			overlay.addEventListener("mousedown", () => (window.__overlayClicks += 1));
+			document.body.append(overlay);
+			setTimeout(() => overlay.remove(), ${layout.overlayMs});
+		}
 	</script>
 </body>`;
 }
@@ -54,7 +69,7 @@ function embedPage(level, layout) {
 <body style="margin:20px;background:#eef;font:14px sans-serif">
 	<p style="height:${layout.innerSpacer}px">Cross-origin embed ${level}</p>
 	${frameAt(level, layout)}
-	<p style="height:600px"></p>
+	<p style="height:${layout.innerTail}px"></p>
 </body>`;
 }
 
@@ -91,13 +106,36 @@ export function scenarioRoutes({
 	depth = 0,
 	spacer = 200,
 	innerSpacer = 0,
+	innerTail = 600,
+	embedWidth = null,
+	embedWrapper = null,
+	widgetWidth = 300,
+	widgetOffset = 0,
+	widgetWrapper = null,
 	shadowMode = null,
 	changeUrl = false,
 	navigate = false,
+	removeWidget = false,
+	overlayMs = 0,
 	clicksToSolve = 1,
 	endEarly = false,
 }) {
-	const layout = { depth, spacer, innerSpacer, shadowMode, changeUrl, navigate };
+	const layout = {
+		depth,
+		spacer,
+		innerSpacer,
+		innerTail,
+		embedWidth,
+		embedWrapper,
+		widgetWidth,
+		widgetOffset,
+		widgetWrapper,
+		shadowMode,
+		changeUrl,
+		navigate,
+		removeWidget,
+		overlayMs,
+	};
 	return {
 		"https://host.test/**": hostPage(layout),
 		"https://embed1.test/**": embedPage(1, layout),

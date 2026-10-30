@@ -114,6 +114,41 @@ describe("isTerminalEvent", () => {
 	});
 });
 
+describe("isTerminalEvent on the events Turnstile actually sends", () => {
+	const terminal = [
+		"complete",
+		"fail",
+		"interactiveEnd",
+		"interactiveTimeout",
+		"refreshRequest",
+		"reject",
+		"reloadRequest",
+		"tokenExpired",
+		"widgetStale",
+	];
+	const progress = [
+		"closeFeedbackReportIframe",
+		"feedbackActivity",
+		"feedbackInit",
+		"food",
+		"init",
+		"interactiveBegin",
+		"languageUnsupported",
+		"overrunBegin",
+		"overrunEnd",
+		"reloadApiJsRequest",
+		"requestExtraParams",
+		"requestFeedbackData",
+		"translationInit",
+		"turnstileResults",
+	];
+
+	it("ends the widget only on terminal events", () => {
+		for (const event of terminal) assert.equal(isTerminalEvent(event), true, event);
+		for (const event of progress) assert.equal(isTerminalEvent(event), false, event);
+	});
+});
+
 describe("isChallengeUrl", () => {
 	it("accepts URLs on challenge origins", () => {
 		const url = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile";

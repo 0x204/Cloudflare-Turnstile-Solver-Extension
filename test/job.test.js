@@ -57,6 +57,26 @@ describe("WidgetJob", () => {
 		assert.equal(job.deadline, NOW + 37_000);
 	});
 
+	it("counts as missing only after failing to find the widget for a while", () => {
+		const job = new WidgetJob("doc:abc", "abc", NOW);
+		assert.equal(job.isMissing(NOW + 60_000), false);
+
+		job.recordNotFound(NOW);
+		job.recordNotFound(NOW + 3000);
+		assert.equal(job.isMissing(NOW + 4999), false);
+		assert.equal(job.isMissing(NOW + 5000), true);
+
+		job.recordFound();
+		assert.equal(job.isMissing(NOW + 9000), false);
+	});
+
+	it("is no longer missing when the widget asks for interaction again", () => {
+		const job = new WidgetJob("doc:abc", "abc", NOW);
+		job.recordNotFound(NOW);
+		job.extend(NOW + 1000);
+		assert.equal(job.isMissing(NOW + 10_000), false);
+	});
+
 	it("aborts its signal when cancelled", () => {
 		const job = new WidgetJob("doc:abc", "abc", NOW);
 		assert.equal(job.signal.aborted, false);

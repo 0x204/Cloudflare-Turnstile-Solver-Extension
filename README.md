@@ -4,10 +4,10 @@ A Chrome extension that clicks the checkbox of interactive Cloudflare Turnstile 
 
 ## How it works
 
-1. `content/relay.js` listens for `postMessage` events from Turnstile iframes and tells the service worker when a widget asks for interaction and when it is done.
+1. `content/relay.js` listens for `postMessage` events from Turnstile iframes and tells the service worker when a widget asks for interaction and when it is done. When the page goes away, it ends the widgets that are still open.
 2. The service worker attaches `chrome.debugger` to the tab, finds the widget iframe (including inside cross-origin frames), scrolls it into view and maps the checkbox position to page coordinates.
 3. The pointer moves along a curved path and clicks with input events dispatched through the debugger. The target is checked again right before the press.
-4. If the widget does not finish, the extension clicks once more after a pause. It gives up after two clicks or 30 seconds and detaches the debugger as soon as no widgets are pending.
+4. If the widget does not finish, the extension clicks once more after a pause. Each time a widget asks for interaction it gets up to two clicks within 30 seconds. A widget that disappears from the page is dropped after 5 seconds, and the debugger is detached as soon as no widgets are pending.
 
 ## Install
 
@@ -17,11 +17,15 @@ A Chrome extension that clicks the checkbox of interactive Cloudflare Turnstile 
 
 Requires Chrome or another Chromium-based browser, version 128 or newer.
 
-While a widget is being handled, Chrome shows a banner saying that the extension started debugging the browser. Every extension with the `debugger` permission triggers it.
+While a widget is being handled, Chrome shows a banner saying that the extension started debugging the browser. Every extension with the `debugger` permission triggers it. If you press **Cancel** on the banner, the extension leaves that tab alone until the tab is closed.
+
+While the debugger is attached, the extension emulates focus so that clicks also reach background tabs. A background page therefore reports itself visible for that time.
 
 ## Limitations
 
 The extension finds and clicks the checkbox, including on full-page challenges, inside shadow DOM and inside nested cross-origin frames. Whether Cloudflare accepts the result is decided by its own checks of the browser and the network. Headless or automated browsers are usually rejected after the click.
+
+Chrome does not let an extension debug a page that contains a frame of another extension, such as the inline menu of some password managers. While such a frame is on the page, the widget is not handled; the extension tries again the next time the widget asks for interaction.
 
 ## Development
 
@@ -48,7 +52,9 @@ extension/
   background/
     index.js           entry point, routes browser events to tabs
     tab.js             per-tab worker: debugger lifecycle and job scheduling
+    declined.js        tabs where the user cancelled debugging
     job.js             retry and timeout policy for a single widget
+    solver.js          one attempt: locate, scroll, plan and click
     connection.js      debugger sessions of the tab and its out-of-process frames
     cdp.js             CDP session wrapper, timeouts and error classification
     locator.js         finds the widget iframe
