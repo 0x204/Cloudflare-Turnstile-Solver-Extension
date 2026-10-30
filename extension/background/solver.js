@@ -1,3 +1,4 @@
+import { tolerate } from "./cdp.js";
 import { locateWidget } from "./locator.js";
 import { click } from "./mouse.js";
 import { planClick } from "./targeting.js";
@@ -8,10 +9,18 @@ export async function solveWidget(connection, job, signal) {
 
 	try {
 		const located = await locateWidget(connection, job.widgetId);
-		if (!located) return false;
+		if (!located) {
+			job.recordNotFound();
+			return false;
+		}
+		job.recordFound();
 		scope.throwIfAborted();
 
-		await located.session.send("DOM.scrollIntoViewIfNeeded", { nodeId: located.frame.nodeId });
+		const scroll = located.session.send("DOM.scrollIntoViewIfNeeded", {
+			nodeId: located.frame.nodeId,
+		});
+		// Fails for a widget that has no layout box yet.
+		if ((await tolerate(scroll, false)) === false) return false;
 		scope.throwIfAborted();
 
 		const plan = await planClick(connection, located, job.misses, watch);

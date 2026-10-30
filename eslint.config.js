@@ -41,7 +41,7 @@ export default [
 	{
 		files: ["test/e2e/**/*.js"],
 		languageOptions: {
-			globals: globals.browser,
+			globals: { ...globals.browser, ...globals.webextensions },
 		},
 	},
 ];

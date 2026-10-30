@@ -7,6 +7,7 @@ const CLICK_SETTLE_STEP_MS = 1000;
 const MISS_BACKOFF_BASE_MS = 400;
 const MISS_BACKOFF_STEP_MS = 200;
 const MISS_BACKOFF_MAX_MS = 2000;
+const MISSING_GRACE_MS = 5000;
 
 export class WidgetJob {
 	#controller = new AbortController();
@@ -33,15 +34,29 @@ export class WidgetJob {
 		return now >= this.nextAttemptAt;
 	}
 
+	isMissing(now = Date.now()) {
+		return this.missingSince !== null && now - this.missingSince >= MISSING_GRACE_MS;
+	}
+
 	restart(now = Date.now()) {
 		this.clicks = 0;
 		this.misses = 0;
 		this.deadline = now + LIFETIME_MS;
 		this.nextAttemptAt = now;
+		this.missingSince = null;
 	}
 
 	extend(now = Date.now()) {
 		this.deadline = Math.max(this.deadline, now + LIFETIME_MS);
+		this.missingSince = null;
+	}
+
+	recordFound() {
+		this.missingSince = null;
+	}
+
+	recordNotFound(now = Date.now()) {
+		this.missingSince ??= now;
 	}
 
 	recordClick(now = Date.now()) {
