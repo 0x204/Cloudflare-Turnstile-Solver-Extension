@@ -18,10 +18,18 @@ export class Tab {
 	#connection = null;
 	#running = false;
 	#onIdle;
+	#attach;
+	#solve;
 
-	constructor(id, onIdle) {
+	constructor(
+		id,
+		onIdle,
+		{ attach = (tabId) => DebuggerConnection.attach(tabId), solve = solveWidget } = {},
+	) {
 		this.id = id;
 		this.#onIdle = onIdle;
+		this.#attach = attach;
+		this.#solve = solve;
 	}
 
 	get cancelled() {
@@ -93,7 +101,7 @@ export class Tab {
 
 		let connection;
 		try {
-			connection = await DebuggerConnection.attach(this.id);
+			connection = await this.#attach(this.id);
 		} catch (error) {
 			warn(`Cannot attach to tab ${this.id}:`, error);
 			this.#dropAll();
@@ -126,6 +134,11 @@ export class Tab {
 					this.#drop(job);
 					continue;
 				}
+				if (job.isMissing(now)) {
+					warn("Widget is no longer on the page:", job.widgetId);
+					this.#drop(job);
+					continue;
+				}
 				if (!job.isDue(now)) continue;
 				if (job.exhausted) {
 					warn("Widget was not solved after the allowed clicks:", job.widgetId);
@@ -149,7 +162,7 @@ export class Tab {
 
 		let clicked = false;
 		try {
-			clicked = await solveWidget(connection, job, signal);
+			clicked = await this.#solve(connection, job, signal);
 		} catch (error) {
 			if (isFatal(error)) throw error;
 			if (!signal.aborted) warn("Widget attempt failed:", error);

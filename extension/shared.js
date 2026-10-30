@@ -28,6 +28,9 @@
 		"widgetStale",
 	]);
 
+	// Contain a terminal word but do not end the widget: the page may reject the reload.
+	const KNOWN_PROGRESS_EVENTS = new Set(["reloadApiJsRequest"]);
+
 	const TERMINAL_WORDS = new Set([
 		"complete",
 		"completed",
@@ -66,9 +69,9 @@
 	}
 
 	function isTerminalEvent(name) {
-		return (
-			KNOWN_TERMINAL_EVENTS.has(name) || splitWords(name).some((word) => TERMINAL_WORDS.has(word))
-		);
+		if (KNOWN_TERMINAL_EVENTS.has(name)) return true;
+		if (KNOWN_PROGRESS_EVENTS.has(name)) return false;
+		return splitWords(name).some((word) => TERMINAL_WORDS.has(word));
 	}
 
 	function parseChallengeMessage(event, ownWindow) {

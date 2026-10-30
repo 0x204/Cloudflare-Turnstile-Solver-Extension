@@ -1,4 +1,7 @@
-import { CdpSession, PROTOCOL_VERSION } from "./cdp.js";
+import { CdpSession, CommandTimeoutError, PROTOCOL_VERSION } from "./cdp.js";
+
+// Left behind by a previous service worker that stopped while attached.
+const STALE_SESSION = /Another debugger is already attached/i;
 
 const AUTO_ATTACH = {
 	autoAttach: true,
@@ -12,6 +15,8 @@ const SETUP = [
 	["DOM.enable"],
 	["CSS.enable"],
 	["Page.enable"],
+	// Background tabs do not acknowledge Input.dispatchMouseEvent unless they render. Focus
+	// emulation keeps them rendering, so the page reports itself visible while attached.
 	["Emulation.setFocusEmulationEnabled", { enabled: true }],
 ];
 
@@ -60,7 +65,13 @@ export class DebuggerConnection {
 
 	static async attach(tabId) {
 		const root = new CdpSession({ tabId });
-		await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
+		try {
+			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
+		} catch (error) {
+			if (!STALE_SESSION.test(error?.message)) throw error;
+			await chrome.debugger.detach(root.debuggee);
+			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
+		}
 		return new DebuggerConnection(root);
 	}
 
@@ -80,7 +91,9 @@ export class DebuggerConnection {
 			}
 		}
 		await chrome.debugger.detach(this.root.debuggee).catch(() => {});
+		for (const session of this.#children.values()) session.close();
 		this.#children.clear();
+		this.root.close();
 	}
 
 	async *openSessions() {
@@ -149,7 +162,10 @@ export class DebuggerConnection {
 		const debuggee = { tabId: this.root.debuggee.tabId, sessionId };
 		const session = new CdpSession(debuggee, { parentId, targetInfo });
 		this.#children.set(sessionId, session);
-		session.ready = session.sendAll(SETUP).catch(() => this.#drop(session));
+		session.ready = session.sendAll(SETUP).catch((error) => {
+			// A busy frame answers late but still applies the commands in order.
+			if (!(error instanceof CommandTimeoutError)) this.#drop(session);
+		});
 	}
 
 	#detached(sessionId) {
@@ -158,7 +174,10 @@ export class DebuggerConnection {
 	}
 
 	#drop(session) {
-		session.closed = true;
+		session.close();
 		if (this.#children.get(session.id) === session) this.#children.delete(session.id);
+		for (const child of [...this.#children.values()]) {
+			if (child.parentId === session.id) this.#drop(child);
+		}
 	}
 }
