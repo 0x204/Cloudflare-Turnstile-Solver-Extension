@@ -1,6 +1,5 @@
 import { tolerate } from "./cdp.js";
 import {
-	clamp,
 	isInViewport,
 	isParallelogram,
 	quadPoint,
@@ -23,8 +22,6 @@ const CHECKBOX_OFFSET = {
 	ratio: 0.15,
 	missStep: 0.02,
 	maxMissShift: 0.08,
-	min: 0.08,
-	max: 0.3,
 };
 
 function isRendered(computedStyle) {
@@ -47,16 +44,32 @@ function viewportOf(metrics, session) {
 	return { width, height, scrollX: pageX, scrollY: pageY };
 }
 
+// Content box size in the element's own CSS pixels, before transforms and zoom of its ancestors.
+// For an iframe this is the full viewport of the embedded document, scrollbars included.
+function layoutSize(model) {
+	const border = quadSize(model.border);
+	const content = quadSize(model.content);
+	if (!(model.width > 0 && model.height > 0 && border.width > 0 && border.height > 0)) return null;
+	return {
+		width: (content.width * model.width) / border.width,
+		height: (content.height * model.height) / border.height,
+	};
+}
+
 async function measureFrame(session, nodeId) {
-	const [{ model }, { computedStyle = [] }, metrics] = await Promise.all([
-		session.send("DOM.getBoxModel", { nodeId }),
+	const [box, { computedStyle = [] }, metrics] = await Promise.all([
+		// Fails for nodes without a layout box, such as a widget inside display: none.
+		tolerate(session.send("DOM.getBoxModel", { nodeId }), null),
 		session.send("CSS.getComputedStyleForNode", { nodeId }),
 		session.send("Page.getLayoutMetrics"),
 	]);
-	const quad = model?.content;
+	const model = box?.model;
+	if (!model || !isParallelogram(model.content) || !isParallelogram(model.border)) return null;
+
+	const size = layoutSize(model);
 	const viewport = viewportOf(metrics, session);
-	if (!isParallelogram(quad) || !viewport || !isRendered(computedStyle)) return null;
-	return { quad, viewport };
+	if (!size || !viewport || !isRendered(computedStyle)) return null;
+	return { quad: model.content, size, viewport };
 }
 
 async function isForeignFrameOwner(session, backendNodeId, frameId) {
@@ -96,10 +109,10 @@ async function frameOwner(session, frameId) {
 	return nodeIds[0] ? { frameId, backendNodeId, nodeId: nodeIds[0] } : null;
 }
 
-function checkboxPoint(quad, width, misses) {
-	const { maxPx, ratio, missStep, maxMissShift, min, max } = CHECKBOX_OFFSET;
+export function checkboxPoint(quad, layoutWidth, misses) {
+	const { maxPx, ratio, missStep, maxMissShift } = CHECKBOX_OFFSET;
 	const shift = Math.min(misses * missStep, maxMissShift);
-	const u = clamp(Math.min(maxPx / width, ratio + shift), min, max);
+	const u = Math.min(maxPx / layoutWidth, ratio + shift);
 	const v = misses % 2 === 0 ? 0.5 : 0.54;
 	return quadPoint(quad, u, v);
 }
@@ -111,7 +124,7 @@ async function chooseTarget({ session, frame }, misses) {
 	const { width, height } = quadSize(geometry.quad);
 	if (width < MIN_WIDGET_WIDTH || height < MIN_WIDGET_HEIGHT) return null;
 
-	const anchor = checkboxPoint(geometry.quad, width, misses);
+	const anchor = checkboxPoint(geometry.quad, geometry.size.width, misses);
 	const point = { x: anchor.x + jitter(2), y: anchor.y + jitter(3) };
 	if (!isInViewport(point, geometry.viewport)) return null;
 	if (!(await hitsFrame(session, point, geometry.viewport, frame))) return null;
@@ -134,8 +147,8 @@ async function projectToRoot(connection, located, leaf, watch) {
 
 		const point = quadPoint(
 			geometry.quad,
-			current.point.x / current.viewport.width,
-			current.point.y / current.viewport.height,
+			current.point.x / geometry.size.width,
+			current.point.y / geometry.size.height,
 		);
 		if (!isInViewport(point, geometry.viewport)) return null;
 		if (!(await hitsFrame(parent, point, geometry.viewport, owner))) return null;
