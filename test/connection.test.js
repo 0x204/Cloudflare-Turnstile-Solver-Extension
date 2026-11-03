@@ -3,26 +3,9 @@ import { afterEach, describe, it } from "node:test";
 
 import { ProtocolError } from "../extension/background/cdp.js";
 import { DebuggerConnection } from "../extension/background/connection.js";
+import { installDebugger } from "./support.js";
 
 const TAB_ID = 7;
-
-function fakeDebugger({ attach = async () => {}, respond = async () => ({}) } = {}) {
-	const calls = [];
-	globalThis.chrome = {
-		debugger: {
-			attach: async (debuggee) => {
-				calls.push(["attach", debuggee]);
-				await attach(calls);
-			},
-			detach: async (debuggee) => calls.push(["detach", debuggee]),
-			sendCommand: (debuggee, method, params) => {
-				calls.push([method, debuggee.sessionId ?? null, params]);
-				return respond(method, debuggee.sessionId ?? null);
-			},
-		},
-	};
-	return calls;
-}
 
 function attachChild(connection, sessionId, parentSessionId = undefined) {
 	connection.handleEvent({ tabId: TAB_ID, sessionId: parentSessionId }, "Target.attachedToTarget", {
@@ -46,7 +29,7 @@ afterEach(() => {
 describe("DebuggerConnection", () => {
 	it("replaces a session left behind by a previous service worker", async () => {
 		let attempts = 0;
-		const calls = fakeDebugger({
+		const { calls } = installDebugger({
 			attach: async () => {
 				attempts += 1;
 				if (attempts === 1) {
@@ -62,7 +45,7 @@ describe("DebuggerConnection", () => {
 	});
 
 	it("does not retry other attach failures", async () => {
-		fakeDebugger({
+		installDebugger({
 			attach: async () => {
 				throw new Error("Cannot access a chrome-extension:// URL of different extension");
 			},
@@ -71,7 +54,7 @@ describe("DebuggerConnection", () => {
 	});
 
 	it("sets up child sessions and drops the ones that fail", async () => {
-		const calls = fakeDebugger({
+		const { calls } = installDebugger({
 			respond: async (method, sessionId) => {
 				if (sessionId === "broken" && method === "DOM.enable") throw new Error("Not supported");
 				return {};
@@ -88,7 +71,7 @@ describe("DebuggerConnection", () => {
 	});
 
 	it("rejects pending commands and drops descendants when a frame detaches", async () => {
-		fakeDebugger({
+		installDebugger({
 			respond: async (method) => (method === "DOM.getDocument" ? new Promise(() => {}) : {}),
 		});
 		const connection = await DebuggerConnection.attach(TAB_ID);
@@ -105,7 +88,7 @@ describe("DebuggerConnection", () => {
 	});
 
 	it("aborts a frame watch when a watched frame navigates", async () => {
-		fakeDebugger();
+		installDebugger();
 		const connection = await DebuggerConnection.attach(TAB_ID);
 		const watch = connection.watchFrames();
 		watch.add("frame-1");
@@ -118,7 +101,7 @@ describe("DebuggerConnection", () => {
 	});
 
 	it("detaches even when teardown commands fail and ignores later attachments", async () => {
-		const calls = fakeDebugger({
+		const { calls } = installDebugger({
 			respond: async (method) => {
 				if (method.endsWith(".disable")) throw new Error("Not enabled");
 				return {};

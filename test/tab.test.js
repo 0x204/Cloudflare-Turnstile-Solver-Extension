@@ -3,8 +3,7 @@ import { beforeEach, describe, it } from "node:test";
 
 import { FatalProtocolError } from "../extension/background/cdp.js";
 import { Tab } from "../extension/background/tab.js";
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
+import { flush } from "./support.js";
 
 // Workers of one tab id run one after another, so every test gets its own tab.
 let nextTabId = 1;

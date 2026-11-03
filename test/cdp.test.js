@@ -9,10 +9,9 @@ import {
 	ProtocolError,
 	tolerate,
 } from "../extension/background/cdp.js";
+import { installDebugger } from "./support.js";
 
-function fakeDebugger(sendCommand) {
-	globalThis.chrome = { debugger: { sendCommand } };
-}
+const silent = () => new Promise(() => {});
 
 afterEach(() => {
 	delete globalThis.chrome;
@@ -53,8 +52,10 @@ describe("tolerate", () => {
 
 describe("CdpSession", () => {
 	it("wraps debugger errors in ProtocolError", async () => {
-		fakeDebugger(async () => {
-			throw new Error("No tab with given id 7.");
+		installDebugger({
+			respond: async () => {
+				throw new Error("No tab with given id 7.");
+			},
 		});
 		const session = new CdpSession({ tabId: 7 });
 		await assert.rejects(session.send("DOM.enable"), (error) => {
@@ -65,8 +66,10 @@ describe("CdpSession", () => {
 	});
 
 	it("marks itself closed when the session is gone", async () => {
-		fakeDebugger(async () => {
-			throw new Error('{"code":-32001,"message":"Session with given id not found."}');
+		installDebugger({
+			respond: async () => {
+				throw new Error('{"code":-32001,"message":"Session with given id not found."}');
+			},
 		});
 		const session = new CdpSession({ tabId: 7, sessionId: "child" });
 		await assert.rejects(session.send("DOM.enable"));
@@ -75,7 +78,7 @@ describe("CdpSession", () => {
 	});
 
 	it("rejects commands still in flight when it is closed", async () => {
-		fakeDebugger(() => new Promise(() => {}));
+		installDebugger({ respond: silent });
 		const session = new CdpSession({ tabId: 7, sessionId: "child" });
 		const pending = session.send("DOM.getDocument");
 		session.close();
@@ -86,7 +89,7 @@ describe("CdpSession", () => {
 		beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout"] }));
 
 		it("gives up on a silent command without treating it as fatal", async (t) => {
-			fakeDebugger(() => new Promise(() => {}));
+			installDebugger({ respond: silent });
 			const pending = new CdpSession({ tabId: 7 }).send("DOM.getDocument");
 			t.mock.timers.tick(5000);
 			await assert.rejects(pending, (error) => {

@@ -1,101 +1,81 @@
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import "../extension/shared.js";
+import { EXTENSION_ID, fakeChrome } from "./support.js";
 
 const { Action } = globalThis.TurnstileProtocol;
-const EXTENSION_ID = "self";
 
-let chrome;
+// The widget is never found, so an attached worker keeps looking until it is stopped.
+const emptyPage = async (method) =>
+	method === "DOM.performSearch" ? { searchId: "search", resultCount: 0 } : {};
 
-function fakeEvent() {
-	const listeners = new Set();
-	return {
-		addListener: (listener) => listeners.add(listener),
-		removeListener: (listener) => listeners.delete(listener),
-		hasListener: (listener) => listeners.has(listener),
-		emit: (...args) => [...listeners].map((listener) => listener(...args)),
-		get size() {
-			return listeners.size;
-		},
-	};
+let workers = 0;
+
+// Evaluates the service worker again, as Chrome does every time it starts the worker.
+async function startWorker(t, options = {}) {
+	const chrome = fakeChrome({ respond: emptyPage, ...options });
+	globalThis.chrome = chrome;
+	t.after(async () => {
+		for (const tabId of attachedTabs(chrome)) chrome.tabs.onRemoved.emit(tabId);
+		await sleep(50);
+		delete globalThis.chrome;
+	});
+
+	workers += 1;
+	await import(`../extension/background/index.js?worker=${workers}`);
+	return chrome;
 }
 
-function fakeChrome() {
-	const stored = {};
-	const attached = [];
-	return {
-		attached,
-		stored,
-		runtime: { id: EXTENSION_ID, onMessage: fakeEvent() },
-		tabs: { onRemoved: fakeEvent() },
-		storage: {
-			session: {
-				get: async (key) => (key in stored ? { [key]: stored[key] } : {}),
-				set: async (items) => Object.assign(stored, items),
-			},
-		},
-		debugger: {
-			onDetach: fakeEvent(),
-			onEvent: fakeEvent(),
-			attach: async ({ tabId }) => attached.push(tabId),
-			detach: async () => {},
-			sendCommand: async (debuggee, method) =>
-				method === "DOM.performSearch" ? { searchId: "search", resultCount: 0 } : {},
-		},
-	};
+function attachedTabs(chrome) {
+	return chrome.debugger.calls.filter(([name]) => name === "attach").map(([, { tabId }]) => tabId);
 }
 
-function begin(tabId, { extensionId = EXTENSION_ID } = {}) {
+function begin(chrome, tabId, { extensionId = EXTENSION_ID } = {}) {
 	const message = { action: Action.BEGIN, widgetId: "w" };
 	const sender = { id: extensionId, tab: { id: tabId }, documentId: `doc-${tabId}` };
 	chrome.runtime.onMessage.emit(message, sender);
 }
 
-describe("service worker routing", () => {
-	before(async () => {
-		chrome = globalThis.chrome = fakeChrome();
-		await import("../extension/background/index.js");
+// Tabs of one id are handled one after another across workers, so every test uses its own ids.
+describe("service worker", () => {
+	it("does not watch tab closing while it has nothing to clean up", async (t) => {
+		const chrome = await startWorker(t);
 		await sleep(10);
-	});
-
-	after(async () => {
-		for (const tabId of [1, 2, 3]) chrome.tabs.onRemoved.emit(tabId);
-		await sleep(50);
-		delete globalThis.chrome;
-	});
-
-	it("does not watch tab closing while it has nothing to clean up", () => {
 		assert.equal(chrome.tabs.onRemoved.size, 0);
 	});
 
-	it("attaches the debugger when a widget asks for interaction", async () => {
-		begin(1);
+	it("attaches the debugger when a widget asks for interaction", async (t) => {
+		const chrome = await startWorker(t);
+		begin(chrome, 1);
 		await sleep(20);
-		assert.deepEqual(chrome.attached, [1]);
+		assert.deepEqual(attachedTabs(chrome), [1]);
 		assert.equal(chrome.tabs.onRemoved.size, 1);
 	});
 
-	it("ignores messages from other extensions", async () => {
-		begin(2, { extensionId: "other" });
+	it("ignores messages from other extensions", async (t) => {
+		const chrome = await startWorker(t);
+		begin(chrome, 2, { extensionId: "other" });
 		await sleep(20);
-		assert.equal(chrome.attached.includes(2), false);
+		assert.deepEqual(attachedTabs(chrome), []);
 	});
 
-	it("leaves a tab alone after the user cancels debugging, until the tab closes", async () => {
-		begin(3);
+	it("leaves a tab alone after the user cancels debugging, until the tab closes", async (t) => {
+		const chrome = await startWorker(t);
+		const stored = chrome.storage.session.data;
+		begin(chrome, 3);
 		await sleep(20);
 		chrome.debugger.onDetach.emit({ tabId: 3 }, "canceled_by_user");
 		await sleep(20);
-		assert.deepEqual(chrome.stored.declinedTabs, [3]);
+		assert.deepEqual(stored.declinedTabs, [3]);
 
-		begin(3);
+		begin(chrome, 3);
 		await sleep(20);
-		assert.equal(chrome.attached.filter((tabId) => tabId === 3).length, 1);
+		assert.deepEqual(attachedTabs(chrome), [3]);
 
 		chrome.tabs.onRemoved.emit(3);
 		await sleep(20);
-		assert.deepEqual(chrome.stored.declinedTabs, []);
+		assert.deepEqual(stored.declinedTabs, []);
 	});
 });
