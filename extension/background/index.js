@@ -7,8 +7,6 @@ const tabs = new Map();
 const declined = new DeclinedTabs(chrome.storage.session);
 const loaded = declined.load().finally(syncTabListener);
 
-// Handlers that touch tab state wait for the declined tabs. They all wait on the same promise,
-// so events are still handled in the order they arrived.
 function afterLoad(handler) {
 	return (...args) => {
 		loaded.then(() => handler(...args));
@@ -20,11 +18,6 @@ const forgetTab = afterLoad((tabId) => {
 	declined.delete(tabId);
 	syncTabListener();
 });
-
-// Added on every start, so a tab closing that woke the worker reaches it. Once the declined tabs
-// are loaded, the listener stays only while some tab has state, so closing tabs does not wake
-// the worker otherwise.
-chrome.tabs.onRemoved.addListener(forgetTab);
 
 function syncTabListener() {
 	const needed = tabs.size > 0 || declined.size > 0;
@@ -80,7 +73,6 @@ function handleMessage(message, sender) {
 function handleDetach({ tabId }, reason) {
 	if (reason === "canceled_by_user") {
 		warn(`Debugging was cancelled by the user; tab ${tabId} will be left alone.`);
-		// Declined before the tab is let go, so the listener for its closing is never dropped.
 		declined.add(tabId);
 		cancelTab(tabId);
 		syncTabListener();
@@ -89,10 +81,12 @@ function handleDetach({ tabId }, reason) {
 	}
 }
 
-chrome.runtime.onMessage.addListener(afterLoad(handleMessage));
-chrome.debugger.onDetach.addListener(afterLoad(handleDetach));
-
-chrome.debugger.onEvent.addListener((source, method, params = {}) => {
+function routeDebuggerEvent(source, method, params = {}) {
 	if (replacesTopDocument(source, method, params)) cancelTab(source.tabId);
 	else tabs.get(source.tabId)?.handleDebuggerEvent(source, method, params);
-});
+}
+
+chrome.tabs.onRemoved.addListener(forgetTab);
+chrome.runtime.onMessage.addListener(afterLoad(handleMessage));
+chrome.debugger.onDetach.addListener(afterLoad(handleDetach));
+chrome.debugger.onEvent.addListener(routeDebuggerEvent);

@@ -4,7 +4,7 @@ import { afterEach, describe, it } from "node:test";
 import { CommandTimeoutError } from "../extension/background/cdp.js";
 import { Outcome, WidgetJob } from "../extension/background/job.js";
 import { solveWidget } from "../extension/background/solver.js";
-import { connectToPage, flush, WIDGET_ID } from "./support.js";
+import { connectToPage, letCommandsTimeOut, WIDGET_ID } from "./support.js";
 
 function solve(connection) {
 	const job = new WidgetJob(`doc:${WIDGET_ID}`, WIDGET_ID);
@@ -37,11 +37,7 @@ describe("solveWidget", () => {
 		t.mock.timers.enable({ apis: ["setTimeout"] });
 		const connection = await connectToPage({ root: "empty", busy: "silent" });
 		const failed = assert.rejects(solve(connection), CommandTimeoutError);
-
-		for (let step = 0; step < 2; step++) {
-			await flush();
-			t.mock.timers.tick(5000);
-		}
+		await letCommandsTimeOut(t, 2);
 		await failed;
 	});
 });

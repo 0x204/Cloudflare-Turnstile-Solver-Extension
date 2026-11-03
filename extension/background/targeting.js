@@ -44,9 +44,7 @@ function viewportOf(metrics, session) {
 	return { width, height, scrollX: pageX, scrollY: pageY };
 }
 
-// Content box size in the element's own CSS pixels, before transforms and zoom of its ancestors.
-// For an iframe this is the full viewport of the embedded document, scrollbars included.
-function layoutSize(model) {
+function cssContentSize(model) {
 	const border = quadSize(model.border);
 	const content = quadSize(model.content);
 	if (!(model.width > 0 && model.height > 0 && border.width > 0 && border.height > 0)) return null;
@@ -58,7 +56,6 @@ function layoutSize(model) {
 
 async function measureFrame(session, nodeId) {
 	const [box, { computedStyle = [] }, metrics] = await Promise.all([
-		// Fails for nodes without a layout box, such as a widget inside display: none.
 		tolerate(session.send("DOM.getBoxModel", { nodeId }), null),
 		session.send("CSS.getComputedStyleForNode", { nodeId }),
 		session.send("Page.getLayoutMetrics"),
@@ -66,7 +63,7 @@ async function measureFrame(session, nodeId) {
 	const model = box?.model;
 	if (!model || !isParallelogram(model.content) || !isParallelogram(model.border)) return null;
 
-	const size = layoutSize(model);
+	const size = cssContentSize(model);
 	const viewport = viewportOf(metrics, session);
 	if (!size || !viewport || !isRendered(computedStyle)) return null;
 	return { quad: model.content, size, viewport };

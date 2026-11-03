@@ -8,7 +8,6 @@ const { Action } = globalThis.TurnstileProtocol;
 
 let pages = 0;
 
-// Runs the content script in a fresh fake window and records what it sends to the worker.
 async function openPage() {
 	const listeners = new Map();
 	const sent = [];

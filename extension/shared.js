@@ -28,7 +28,6 @@
 		"widgetStale",
 	]);
 
-	// Contain a terminal word but do not end the widget: the page may reject the reload.
 	const KNOWN_PROGRESS_EVENTS = new Set(["reloadApiJsRequest"]);
 
 	const TERMINAL_WORDS = new Set([

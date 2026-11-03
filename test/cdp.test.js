@@ -9,9 +9,7 @@ import {
 	ProtocolError,
 	tolerate,
 } from "../extension/background/cdp.js";
-import { installDebugger } from "./support.js";
-
-const silent = () => new Promise(() => {});
+import { installDebugger, letCommandsTimeOut, never, TAB_ID } from "./support.js";
 
 afterEach(() => {
 	delete globalThis.chrome;
@@ -20,8 +18,8 @@ afterEach(() => {
 describe("isFatal", () => {
 	it("treats a lost tab or debugger as fatal", () => {
 		const messages = [
-			"Debugger is not attached to the tab with id: 7.",
-			"No tab with given id 7.",
+			`Debugger is not attached to the tab with id: ${TAB_ID}.`,
+			`No tab with given id ${TAB_ID}.`,
 			"Detached while handling command.",
 		];
 		for (const message of messages) assert.equal(isFatal(new ProtocolError(message)), true);
@@ -54,10 +52,10 @@ describe("CdpSession", () => {
 	it("wraps debugger errors in ProtocolError", async () => {
 		installDebugger({
 			respond: async () => {
-				throw new Error("No tab with given id 7.");
+				throw new Error(`No tab with given id ${TAB_ID}.`);
 			},
 		});
-		const session = new CdpSession({ tabId: 7 });
+		const session = new CdpSession({ tabId: TAB_ID });
 		await assert.rejects(session.send("DOM.enable"), (error) => {
 			assert.ok(error instanceof ProtocolError);
 			assert.equal(isFatal(error), true);
@@ -71,15 +69,15 @@ describe("CdpSession", () => {
 				throw new Error('{"code":-32001,"message":"Session with given id not found."}');
 			},
 		});
-		const session = new CdpSession({ tabId: 7, sessionId: "child" });
+		const session = new CdpSession({ tabId: TAB_ID, sessionId: "child" });
 		await assert.rejects(session.send("DOM.enable"));
 		assert.equal(session.closed, true);
 		await assert.rejects(session.send("DOM.enable"), /session closed/);
 	});
 
 	it("rejects commands still in flight when it is closed", async () => {
-		installDebugger({ respond: silent });
-		const session = new CdpSession({ tabId: 7, sessionId: "child" });
+		installDebugger({ respond: never });
+		const session = new CdpSession({ tabId: TAB_ID, sessionId: "child" });
 		const pending = session.send("DOM.getDocument");
 		session.close();
 		await assert.rejects(pending, (error) => error instanceof ProtocolError && !isFatal(error));
@@ -89,9 +87,9 @@ describe("CdpSession", () => {
 		beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout"] }));
 
 		it("gives up on a silent command without treating it as fatal", async (t) => {
-			installDebugger({ respond: silent });
-			const pending = new CdpSession({ tabId: 7 }).send("DOM.getDocument");
-			t.mock.timers.tick(5000);
+			installDebugger({ respond: never });
+			const pending = new CdpSession({ tabId: TAB_ID }).send("DOM.getDocument");
+			await letCommandsTimeOut(t);
 			await assert.rejects(pending, (error) => {
 				assert.ok(error instanceof CommandTimeoutError);
 				assert.equal(isFatal(error), false);

@@ -1,7 +1,6 @@
 import { CdpSession, CommandTimeoutError, PROTOCOL_VERSION } from "./cdp.js";
 
-// Left behind by a previous service worker that stopped while attached.
-const STALE_SESSION = /Another debugger is already attached/i;
+const ALREADY_ATTACHED = /Another debugger is already attached/i;
 
 const AUTO_ATTACH = {
 	autoAttach: true,
@@ -15,8 +14,6 @@ const SETUP = [
 	["DOM.enable"],
 	["CSS.enable"],
 	["Page.enable"],
-	// Background tabs do not acknowledge Input.dispatchMouseEvent unless they render. Focus
-	// emulation keeps them rendering, so the page reports itself visible while attached.
 	["Emulation.setFocusEmulationEnabled", { enabled: true }],
 ];
 
@@ -68,8 +65,7 @@ export class DebuggerConnection {
 		try {
 			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
 		} catch (error) {
-			if (!STALE_SESSION.test(error?.message)) throw error;
-			// The stale session may have gone away on its own in the meantime.
+			if (!ALREADY_ATTACHED.test(error?.message)) throw error;
 			await chrome.debugger.detach(root.debuggee).catch(() => {});
 			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
 		}
@@ -93,7 +89,6 @@ export class DebuggerConnection {
 		this.root.close();
 	}
 
-	// Child sessions may still be setting up: wait for `ready` and skip the ones closed by then.
 	sessions() {
 		return [this.root, ...this.#children.values()];
 	}
@@ -157,7 +152,6 @@ export class DebuggerConnection {
 		const session = new CdpSession(debuggee, { parentId, targetInfo });
 		this.#children.set(sessionId, session);
 		session.ready = session.sendAll(SETUP).catch((error) => {
-			// A busy frame answers late but still applies the commands in order.
 			if (!(error instanceof CommandTimeoutError)) this.#drop(session);
 		});
 	}

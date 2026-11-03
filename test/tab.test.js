@@ -6,7 +6,6 @@ import { Outcome } from "../extension/background/job.js";
 import { Tab } from "../extension/background/tab.js";
 import { flush } from "./support.js";
 
-// Workers of one tab id run one after another, so every test gets its own tab.
 let nextTabId = 1;
 
 function fakeConnection(initialize) {

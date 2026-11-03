@@ -7,13 +7,11 @@ import { EXTENSION_ID, fakeChrome, fakeStorage } from "./support.js";
 
 const { Action } = globalThis.TurnstileProtocol;
 
-// The widget is never found, so an attached worker keeps looking until it is stopped.
 const emptyPage = async (method) =>
 	method === "DOM.performSearch" ? { searchId: "search", resultCount: 0 } : {};
 
 let workers = 0;
 
-// Evaluates the service worker again, as Chrome does every time it starts the worker.
 async function startWorker(t, options = {}) {
 	const chrome = fakeChrome({ respond: emptyPage, ...options });
 	globalThis.chrome = chrome;
@@ -38,7 +36,6 @@ function begin(chrome, tabId, { extensionId = EXTENSION_ID } = {}) {
 	chrome.runtime.onMessage.emit(message, sender);
 }
 
-// Tabs of one id are handled one after another across workers, so every test uses its own ids.
 describe("service worker", () => {
 	it("does not watch tab closing while it has nothing to clean up", async (t) => {
 		const chrome = await startWorker(t);

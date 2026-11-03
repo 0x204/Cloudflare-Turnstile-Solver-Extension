@@ -11,6 +11,10 @@ const MAX_TICK_MS = 1000;
 
 const lifecycles = new SerialQueue();
 
+function allowsTeardown(error) {
+	return !isFatal(error) && !(error instanceof CommandTimeoutError);
+}
+
 export class Tab {
 	#jobs = new Map();
 	#lifetime = new AbortController();
@@ -115,8 +119,7 @@ export class Tab {
 			await connection.initialize();
 			await this.#process(connection);
 		} catch (error) {
-			// A page that did not answer setup will not answer teardown either.
-			graceful = !isFatal(error) && !(error instanceof CommandTimeoutError);
+			graceful = allowsTeardown(error);
 			throw error;
 		} finally {
 			await connection.close({ graceful });

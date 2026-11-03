@@ -16,7 +16,6 @@ export async function solveWidget(connection, job, signal) {
 		const scroll = located.session.send("DOM.scrollIntoViewIfNeeded", {
 			nodeId: located.frame.nodeId,
 		});
-		// Fails for a widget that has no layout box yet.
 		if (!(await tolerate(scroll, null))) return Outcome.MISSED;
 		scope.throwIfAborted();
 

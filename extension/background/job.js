@@ -4,16 +4,16 @@ const LIFETIME_MS = 30_000;
 const MAX_CLICKS = 2;
 const CLICK_SETTLE_MS = 4500;
 const CLICK_SETTLE_STEP_MS = 1000;
+const CLICK_SETTLE_JITTER_MS = 250;
 const MISS_BACKOFF_BASE_MS = 400;
 const MISS_BACKOFF_STEP_MS = 200;
 const MISS_BACKOFF_MAX_MS = 2000;
+const MISS_BACKOFF_JITTER_MS = 75;
 const MISSING_GRACE_MS = 5000;
 
 export const Outcome = Object.freeze({
 	CLICKED: "clicked",
-	// Not clicked, whether the widget was found or the attempt broke off before it could tell.
 	MISSED: "missed",
-	// Every frame was searched and none holds the widget.
 	NOT_FOUND: "not-found",
 });
 
@@ -60,26 +60,28 @@ export class WidgetJob {
 	}
 
 	record(outcome, now = Date.now()) {
-		// The widget is gone only after a run of searches that covered every frame and came back
-		// empty. Any other outcome starts the grace period over.
 		this.missingSince = outcome === Outcome.NOT_FOUND ? (this.missingSince ?? now) : null;
+		if (outcome === Outcome.CLICKED) this.#settleAfterClick(now);
+		else this.#backOffAfterMiss(now);
+	}
 
-		if (outcome === Outcome.CLICKED) {
-			this.clicks += 1;
-			this.misses = 0;
-			this.nextAttemptAt = now + CLICK_SETTLE_MS + this.clicks * CLICK_SETTLE_STEP_MS + jitter(250);
-			return;
-		}
+	cancel() {
+		this.#controller.abort();
+	}
 
+	#settleAfterClick(now) {
+		this.clicks += 1;
+		this.misses = 0;
+		const settle = CLICK_SETTLE_MS + this.clicks * CLICK_SETTLE_STEP_MS;
+		this.nextAttemptAt = now + settle + jitter(CLICK_SETTLE_JITTER_MS);
+	}
+
+	#backOffAfterMiss(now) {
 		this.misses += 1;
 		const backoff = Math.min(
 			MISS_BACKOFF_BASE_MS + this.misses * MISS_BACKOFF_STEP_MS,
 			MISS_BACKOFF_MAX_MS,
 		);
-		this.nextAttemptAt = now + backoff + jitter(75);
-	}
-
-	cancel() {
-		this.#controller.abort();
+		this.nextAttemptAt = now + backoff + jitter(MISS_BACKOFF_JITTER_MS);
 	}
 }

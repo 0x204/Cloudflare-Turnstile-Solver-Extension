@@ -2,8 +2,6 @@ import { warn } from "./log.js";
 
 const STORAGE_KEY = "declinedTabs";
 
-// Tabs where the user cancelled debugging. Kept in session storage so the choice survives
-// service worker restarts until the tab is closed.
 export class DeclinedTabs {
 	#ids = new Set();
 	#storage;
