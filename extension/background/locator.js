@@ -77,23 +77,15 @@ async function searchSession(connection, session, iframeId) {
 	return frame && { session, frame };
 }
 
-// Searches all frames at once and settles on the first one holding the widget, so a frame that
-// does not answer costs one command timeout at most. Resolves to null only when every frame was
-// searched: a failed search rejects instead, since the widget may be in that frame.
-export function locateWidget(connection, widgetId) {
-	const iframeId = widgetFrameId(widgetId);
-	const searches = connection
-		.sessions()
-		.map((session) => searchSession(connection, session, iframeId));
-
+function firstLocated(searches) {
 	return new Promise((resolve, reject) => {
-		let pending = searches.length;
-		let failure = null;
+		let remaining = searches.length;
+		let searchFailure = null;
 
 		const settle = () => {
-			pending -= 1;
-			if (pending > 0) return;
-			if (failure) reject(failure);
+			remaining -= 1;
+			if (remaining > 0) return;
+			if (searchFailure) reject(searchFailure);
 			else resolve(null);
 		};
 
@@ -104,11 +96,18 @@ export function locateWidget(connection, widgetId) {
 					settle();
 				},
 				(error) => {
-					if (isRecoverable(error)) failure ??= error;
+					if (isRecoverable(error)) searchFailure ??= error;
 					else reject(error);
 					settle();
 				},
 			);
 		}
 	});
+}
+
+export function locateWidget(connection, widgetId) {
+	const iframeId = widgetFrameId(widgetId);
+	return firstLocated(
+		connection.sessions().map((session) => searchSession(connection, session, iframeId)),
+	);
 }

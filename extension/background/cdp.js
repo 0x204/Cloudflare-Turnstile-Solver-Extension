@@ -47,7 +47,7 @@ function toProtocolError(error) {
 export class CdpSession {
 	closed = false;
 	ready = Promise.resolve();
-	#pending = new Set();
+	#inFlight = new Set();
 
 	constructor(debuggee, { parentId = null, targetInfo = null } = {}) {
 		this.debuggee = debuggee;
@@ -74,11 +74,8 @@ export class CdpSession {
 	async send(method, params = {}) {
 		if (this.closed) throw new ProtocolError(`Cannot send ${method}: session closed`);
 
-		// Chrome never settles a command whose session detaches, so close() rejects it instead.
-		let reject;
-		const abandoned = new Promise((_, onAbandoned) => (reject = onAbandoned));
-		this.#pending.add(reject);
-
+		const { promise: abandoned, reject: abandon } = Promise.withResolvers();
+		this.#inFlight.add(abandon);
 		try {
 			return await withTimeout(
 				Promise.race([chrome.debugger.sendCommand(this.debuggee, method, params), abandoned]),
@@ -89,19 +86,17 @@ export class CdpSession {
 			if (SESSION_GONE.test(error?.message)) this.closed = true;
 			throw toProtocolError(error);
 		} finally {
-			this.#pending.delete(reject);
+			this.#inFlight.delete(abandon);
 		}
 	}
 
-	// Sent together, so one slow answer does not hold back the rest: Chrome still applies them in
-	// order. Rejects with the first failure.
 	async sendAll(commands) {
 		await Promise.all(commands.map(([method, params]) => this.send(method, params)));
 	}
 
 	close() {
 		this.closed = true;
-		for (const reject of this.#pending) reject(new ProtocolError("Session closed"));
-		this.#pending.clear();
+		for (const abandon of this.#inFlight) abandon(new ProtocolError("Session closed"));
+		this.#inFlight.clear();
 	}
 }
