@@ -17,9 +17,16 @@
 		send(message);
 	});
 
-	// Widgets of a document that goes away never report back, so end them here.
-	window.addEventListener("pagehide", () => {
+	// Widgets of a document that goes away never report back, so end them here. A document kept
+	// in the back/forward cache may come back with its widgets still waiting, so keep track of
+	// them and start them again when it is shown.
+	window.addEventListener("pagehide", (event) => {
 		for (const widgetId of pending) send({ action: Action.END, widgetId });
-		pending.clear();
+		if (!event.persisted) pending.clear();
+	});
+
+	window.addEventListener("pageshow", (event) => {
+		if (!event.persisted) return;
+		for (const widgetId of pending) send({ action: Action.BEGIN, widgetId });
 	});
 }
