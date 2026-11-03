@@ -104,8 +104,8 @@ export function locateWidget(connection, widgetId) {
 					settle();
 				},
 				(error) => {
-					if (!isRecoverable(error)) reject(error);
-					failure ??= error;
+					if (isRecoverable(error)) failure ??= error;
+					else reject(error);
 					settle();
 				},
 			);

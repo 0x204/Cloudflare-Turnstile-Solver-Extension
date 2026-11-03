@@ -60,7 +60,8 @@ export class WidgetJob {
 	}
 
 	record(outcome, now = Date.now()) {
-		// Only searches that covered every frame in a row can tell that the widget is gone.
+		// The widget is gone only after a run of searches that covered every frame and came back
+		// empty. Any other outcome starts the grace period over.
 		this.missingSince = outcome === Outcome.NOT_FOUND ? (this.missingSince ?? now) : null;
 
 		if (outcome === Outcome.CLICKED) {
