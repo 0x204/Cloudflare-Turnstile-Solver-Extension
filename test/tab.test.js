@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-import { FatalProtocolError } from "../extension/background/cdp.js";
+import { CommandTimeoutError, FatalProtocolError } from "../extension/background/cdp.js";
+import { Outcome } from "../extension/background/job.js";
 import { Tab } from "../extension/background/tab.js";
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
+import { flush } from "./support.js";
 
 // Workers of one tab id run one after another, so every test gets its own tab.
 let nextTabId = 1;
 
-function fakeConnection() {
+function fakeConnection(initialize) {
 	return {
 		isOpen: true,
 		closedWith: null,
-		async initialize() {},
+		initialize,
 		async close(options) {
 			this.isOpen = false;
 			this.closedWith = options;
@@ -22,8 +22,8 @@ function fakeConnection() {
 	};
 }
 
-function setup(t, solve, { attached = Promise.resolve() } = {}) {
-	const connection = fakeConnection();
+function setup(t, solve, { attached = Promise.resolve(), initialize = async () => {} } = {}) {
+	const connection = fakeConnection(initialize);
 	const state = { connection, attaches: 0, idle: 0, solves: 0 };
 	const tab = new Tab(
 		nextTabId++,
@@ -58,7 +58,7 @@ describe("Tab", () => {
 	beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 }));
 
 	it("stops clicking after two clicks and releases the debugger", async (t) => {
-		const { tab, state } = setup(t, async () => true);
+		const { tab, state } = setup(t, async () => Outcome.CLICKED);
 		tab.begin("doc:w", "w");
 		await state.advance(20_000);
 
@@ -73,7 +73,7 @@ describe("Tab", () => {
 			return new Promise((resolve) => {
 				signal.addEventListener("abort", () => {
 					aborted = true;
-					resolve(false);
+					resolve(Outcome.MISSED);
 				});
 			});
 		});
@@ -87,10 +87,7 @@ describe("Tab", () => {
 	});
 
 	it("drops a widget that stays missing from the page", async (t) => {
-		const { tab, state } = setup(t, async (connection, job) => {
-			job.recordNotFound();
-			return false;
-		});
+		const { tab, state } = setup(t, async () => Outcome.NOT_FOUND);
 		tab.begin("doc:w", "w");
 		await state.advance(7000);
 
@@ -98,12 +95,26 @@ describe("Tab", () => {
 		assert.ok(state.solves < 15, `solves=${state.solves}`);
 	});
 
+	it("keeps a widget whose search keeps failing until its deadline", async (t) => {
+		let attempts = 0;
+		const { tab, state } = setup(t, async () => {
+			attempts += 1;
+			if (attempts === 1) return Outcome.NOT_FOUND;
+			throw new CommandTimeoutError("CDP command timed out: DOM.getDocument");
+		});
+		tab.begin("doc:w", "w");
+		await state.advance(10_000);
+		assert.equal(state.idle, 0);
+
+		await state.advance(21_000);
+		assert.equal(state.idle, 1);
+	});
+
 	it("keeps waiting between clicks without counting the widget as missing", async (t) => {
 		let attempts = 0;
-		const { tab, state } = setup(t, async (connection, job) => {
+		const { tab, state } = setup(t, async () => {
 			attempts += 1;
-			job.recordFound();
-			return true;
+			return Outcome.CLICKED;
 		});
 		tab.begin("doc:w", "w");
 		await state.advance(8000);
@@ -123,9 +134,22 @@ describe("Tab", () => {
 		assert.deepEqual(state.connection.closedWith, { graceful: false });
 	});
 
+	it("closes without teardown when the page does not answer setup", async (t) => {
+		const { tab, state } = setup(t, async () => Outcome.CLICKED, {
+			initialize: async () => {
+				throw new CommandTimeoutError("CDP command timed out: DOM.enable");
+			},
+		});
+		tab.begin("doc:w", "w");
+		await state.advance(100);
+
+		assert.equal(state.solves, 0);
+		assert.deepEqual(state.connection.closedWith, { graceful: false });
+	});
+
 	it("does not solve anything when cancelled while attaching", async (t) => {
 		let finishAttach;
-		const { tab, state } = setup(t, async () => true, {
+		const { tab, state } = setup(t, async () => Outcome.CLICKED, {
 			attached: new Promise((resolve) => (finishAttach = resolve)),
 		});
 		tab.begin("doc:w", "w");
@@ -141,7 +165,7 @@ describe("Tab", () => {
 	});
 
 	it("gives a widget new clicks when it asks for interaction again", async (t) => {
-		const { tab, state } = setup(t, async () => true);
+		const { tab, state } = setup(t, async () => Outcome.CLICKED);
 		tab.begin("doc:w", "w");
 		await state.advance(7000);
 		assert.equal(state.solves, 2);

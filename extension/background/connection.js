@@ -69,7 +69,8 @@ export class DebuggerConnection {
 			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
 		} catch (error) {
 			if (!STALE_SESSION.test(error?.message)) throw error;
-			await chrome.debugger.detach(root.debuggee);
+			// The stale session may have gone away on its own in the meantime.
+			await chrome.debugger.detach(root.debuggee).catch(() => {});
 			await chrome.debugger.attach(root.debuggee, PROTOCOL_VERSION);
 		}
 		return new DebuggerConnection(root);
@@ -85,23 +86,16 @@ export class DebuggerConnection {
 
 	async close({ graceful }) {
 		this.#closing = true;
-		if (graceful) {
-			for (const [method, params] of TEARDOWN) {
-				await this.root.send(method, params).catch(() => {});
-			}
-		}
+		if (graceful) await this.root.sendAll(TEARDOWN).catch(() => {});
 		await chrome.debugger.detach(this.root.debuggee).catch(() => {});
 		for (const session of this.#children.values()) session.close();
 		this.#children.clear();
 		this.root.close();
 	}
 
-	async *openSessions() {
-		yield this.root;
-		for (const session of [...this.#children.values()]) {
-			await session.ready;
-			if (!session.closed) yield session;
-		}
+	// Child sessions may still be setting up: wait for `ready` and skip the ones closed by then.
+	sessions() {
+		return [this.root, ...this.#children.values()];
 	}
 
 	sessionForTarget(targetId) {

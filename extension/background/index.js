@@ -7,7 +7,25 @@ const tabs = new Map();
 const declined = new DeclinedTabs(chrome.storage.session);
 const loaded = declined.load().finally(syncTabListener);
 
-// Only needed while some tab has state, so closing tabs does not wake the worker otherwise.
+// Handlers that touch tab state wait for the declined tabs. They all wait on the same promise,
+// so events are still handled in the order they arrived.
+function afterLoad(handler) {
+	return (...args) => {
+		loaded.then(() => handler(...args));
+	};
+}
+
+const forgetTab = afterLoad((tabId) => {
+	cancelTab(tabId);
+	declined.delete(tabId);
+	syncTabListener();
+});
+
+// Added on every start, so a tab closing that woke the worker reaches it. Once the declined tabs
+// are loaded, the listener stays only while some tab has state, so closing tabs does not wake
+// the worker otherwise.
+chrome.tabs.onRemoved.addListener(forgetTab);
+
 function syncTabListener() {
 	const needed = tabs.size > 0 || declined.size > 0;
 	const registered = chrome.tabs.onRemoved.hasListener(forgetTab);
@@ -36,11 +54,6 @@ function cancelTab(tabId) {
 	if (tab) release(tab);
 }
 
-function forgetTab(tabId) {
-	cancelTab(tabId);
-	declined.delete(tabId).finally(syncTabListener);
-}
-
 function widgetKey(sender, widgetId) {
 	const documentKey = sender.documentId ?? `frame:${sender.frameId ?? 0}`;
 	return `${documentKey}:${widgetId}`;
@@ -64,20 +77,20 @@ function handleMessage(message, sender) {
 	}
 }
 
-// Every message waits on the same promise, so they are still handled in arrival order.
-chrome.runtime.onMessage.addListener((message, sender) => {
-	loaded.then(() => handleMessage(message, sender));
-});
-
-chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+function handleDetach({ tabId }, reason) {
 	if (reason === "canceled_by_user") {
 		warn(`Debugging was cancelled by the user; tab ${tabId} will be left alone.`);
+		// Declined before the tab is let go, so the listener for its closing is never dropped.
+		declined.add(tabId);
 		cancelTab(tabId);
-		declined.add(tabId).finally(syncTabListener);
+		syncTabListener();
 	} else if (tabs.get(tabId)?.ownsDebugger) {
 		cancelTab(tabId);
 	}
-});
+}
+
+chrome.runtime.onMessage.addListener(afterLoad(handleMessage));
+chrome.debugger.onDetach.addListener(afterLoad(handleDetach));
 
 chrome.debugger.onEvent.addListener((source, method, params = {}) => {
 	if (replacesTopDocument(source, method, params)) cancelTab(source.tabId);

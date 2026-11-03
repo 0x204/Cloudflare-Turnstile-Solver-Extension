@@ -1,4 +1,4 @@
-import { tolerate } from "./cdp.js";
+import { isRecoverable, tolerate } from "./cdp.js";
 import { isChallengeUrl, widgetFrameId } from "./protocol.js";
 
 const MAX_SEARCH_RESULTS = 64;
@@ -70,11 +70,45 @@ async function findWidgetFrame(connection, session, iframeId) {
 	}
 }
 
-export async function locateWidget(connection, widgetId) {
+async function searchSession(connection, session, iframeId) {
+	await session.ready;
+	if (session.closed) return null;
+	const frame = await findWidgetFrame(connection, session, iframeId);
+	return frame && { session, frame };
+}
+
+// Searches all frames at once and settles on the first one holding the widget, so a frame that
+// does not answer costs one command timeout at most. Resolves to null only when every frame was
+// searched: a failed search rejects instead, since the widget may be in that frame.
+export function locateWidget(connection, widgetId) {
 	const iframeId = widgetFrameId(widgetId);
-	for await (const session of connection.openSessions()) {
-		const frame = await tolerate(findWidgetFrame(connection, session, iframeId), null);
-		if (frame) return { session, frame };
-	}
-	return null;
+	const searches = connection
+		.sessions()
+		.map((session) => searchSession(connection, session, iframeId));
+
+	return new Promise((resolve, reject) => {
+		let pending = searches.length;
+		let failure = null;
+
+		const settle = () => {
+			pending -= 1;
+			if (pending > 0) return;
+			if (failure) reject(failure);
+			else resolve(null);
+		};
+
+		for (const search of searches) {
+			search.then(
+				(located) => {
+					if (located) resolve(located);
+					settle();
+				},
+				(error) => {
+					if (isRecoverable(error)) failure ??= error;
+					else reject(error);
+					settle();
+				},
+			);
+		}
+	});
 }

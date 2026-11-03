@@ -26,11 +26,15 @@ export function isFatal(error) {
 	);
 }
 
+export function isRecoverable(error) {
+	return error instanceof ProtocolError && !isFatal(error);
+}
+
 export async function tolerate(promise, fallback) {
 	try {
 		return await promise;
 	} catch (error) {
-		if (!(error instanceof ProtocolError) || isFatal(error)) throw error;
+		if (!isRecoverable(error)) throw error;
 		return fallback;
 	}
 }
@@ -89,8 +93,10 @@ export class CdpSession {
 		}
 	}
 
+	// Sent together, so one slow answer does not hold back the rest: Chrome still applies them in
+	// order. Rejects with the first failure.
 	async sendAll(commands) {
-		for (const [method, params] of commands) await this.send(method, params);
+		await Promise.all(commands.map(([method, params]) => this.send(method, params)));
 	}
 
 	close() {
