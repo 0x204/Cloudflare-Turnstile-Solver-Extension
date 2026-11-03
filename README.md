@@ -4,10 +4,10 @@ A Chrome extension that clicks the checkbox of interactive Cloudflare Turnstile 
 
 ## How it works
 
-1. `content/relay.js` listens for `postMessage` events from Turnstile iframes and tells the service worker when a widget asks for interaction and when it is done. When the page goes away, it ends the widgets that are still open.
+1. `content/relay.js` listens for `postMessage` events from Turnstile iframes and tells the service worker when a widget asks for interaction and when it is done. When the page goes away, it ends the widgets that are still open, and starts them again if the page comes back from the back/forward cache.
 2. The service worker attaches `chrome.debugger` to the tab, finds the widget iframe (including inside cross-origin frames), scrolls it into view and maps the checkbox position to page coordinates.
 3. The pointer moves along a curved path and clicks with input events dispatched through the debugger. The target is checked again right before the press.
-4. If the widget does not finish, the extension clicks once more after a pause. Each time a widget asks for interaction it gets up to two clicks within 30 seconds. A widget that disappears from the page is dropped after 5 seconds, and the debugger is detached as soon as no widgets are pending.
+4. If the widget does not finish, the extension clicks once more after a pause, so a widget gets at most two clicks within 30 seconds. If it asks for interaction again after both clicks or after those 30 seconds, it gets two new clicks. A widget that no frame of the page has held for 5 seconds is dropped, and the debugger is detached as soon as no widgets are pending.
 
 ## Install
 
@@ -63,6 +63,7 @@ extension/
     geometry.js, random.js, timing.js, log.js, protocol.js
 test/
   *.test.js            unit tests
+  support.js           fakes of the chrome APIs shared by the unit tests
   e2e/                 end-to-end tests
 ```
 
