@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
 import { CommandTimeoutError, FatalProtocolError } from "../extension/background/cdp.js";
+import { Outcome } from "../extension/background/job.js";
 import { Tab } from "../extension/background/tab.js";
 import { flush } from "./support.js";
 
@@ -57,7 +58,7 @@ describe("Tab", () => {
 	beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 }));
 
 	it("stops clicking after two clicks and releases the debugger", async (t) => {
-		const { tab, state } = setup(t, async () => true);
+		const { tab, state } = setup(t, async () => Outcome.CLICKED);
 		tab.begin("doc:w", "w");
 		await state.advance(20_000);
 
@@ -72,7 +73,7 @@ describe("Tab", () => {
 			return new Promise((resolve) => {
 				signal.addEventListener("abort", () => {
 					aborted = true;
-					resolve(false);
+					resolve(Outcome.MISSED);
 				});
 			});
 		});
@@ -86,10 +87,7 @@ describe("Tab", () => {
 	});
 
 	it("drops a widget that stays missing from the page", async (t) => {
-		const { tab, state } = setup(t, async (connection, job) => {
-			job.recordNotFound();
-			return false;
-		});
+		const { tab, state } = setup(t, async () => Outcome.NOT_FOUND);
 		tab.begin("doc:w", "w");
 		await state.advance(7000);
 
@@ -97,12 +95,26 @@ describe("Tab", () => {
 		assert.ok(state.solves < 15, `solves=${state.solves}`);
 	});
 
+	it("keeps a widget whose search keeps failing until its deadline", async (t) => {
+		let attempts = 0;
+		const { tab, state } = setup(t, async () => {
+			attempts += 1;
+			if (attempts === 1) return Outcome.NOT_FOUND;
+			throw new CommandTimeoutError("CDP command timed out: DOM.getDocument");
+		});
+		tab.begin("doc:w", "w");
+		await state.advance(10_000);
+		assert.equal(state.idle, 0);
+
+		await state.advance(21_000);
+		assert.equal(state.idle, 1);
+	});
+
 	it("keeps waiting between clicks without counting the widget as missing", async (t) => {
 		let attempts = 0;
-		const { tab, state } = setup(t, async (connection, job) => {
+		const { tab, state } = setup(t, async () => {
 			attempts += 1;
-			job.recordFound();
-			return true;
+			return Outcome.CLICKED;
 		});
 		tab.begin("doc:w", "w");
 		await state.advance(8000);
@@ -123,7 +135,7 @@ describe("Tab", () => {
 	});
 
 	it("closes without teardown when the page does not answer setup", async (t) => {
-		const { tab, state } = setup(t, async () => true, {
+		const { tab, state } = setup(t, async () => Outcome.CLICKED, {
 			initialize: async () => {
 				throw new CommandTimeoutError("CDP command timed out: DOM.enable");
 			},
@@ -137,7 +149,7 @@ describe("Tab", () => {
 
 	it("does not solve anything when cancelled while attaching", async (t) => {
 		let finishAttach;
-		const { tab, state } = setup(t, async () => true, {
+		const { tab, state } = setup(t, async () => Outcome.CLICKED, {
 			attached: new Promise((resolve) => (finishAttach = resolve)),
 		});
 		tab.begin("doc:w", "w");
@@ -153,7 +165,7 @@ describe("Tab", () => {
 	});
 
 	it("gives a widget new clicks when it asks for interaction again", async (t) => {
-		const { tab, state } = setup(t, async () => true);
+		const { tab, state } = setup(t, async () => Outcome.CLICKED);
 		tab.begin("doc:w", "w");
 		await state.advance(7000);
 		assert.equal(state.solves, 2);

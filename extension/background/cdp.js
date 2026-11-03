@@ -26,11 +26,15 @@ export function isFatal(error) {
 	);
 }
 
+export function isRecoverable(error) {
+	return error instanceof ProtocolError && !isFatal(error);
+}
+
 export async function tolerate(promise, fallback) {
 	try {
 		return await promise;
 	} catch (error) {
-		if (!(error instanceof ProtocolError) || isFatal(error)) throw error;
+		if (!isRecoverable(error)) throw error;
 		return fallback;
 	}
 }

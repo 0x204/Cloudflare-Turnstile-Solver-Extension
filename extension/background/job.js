@@ -9,6 +9,14 @@ const MISS_BACKOFF_STEP_MS = 200;
 const MISS_BACKOFF_MAX_MS = 2000;
 const MISSING_GRACE_MS = 5000;
 
+export const Outcome = Object.freeze({
+	CLICKED: "clicked",
+	// Not clicked, whether the widget was found or the attempt broke off before it could tell.
+	MISSED: "missed",
+	// Every frame was searched and none holds the widget.
+	NOT_FOUND: "not-found",
+});
+
 export class WidgetJob {
 	#controller = new AbortController();
 
@@ -51,21 +59,17 @@ export class WidgetJob {
 		this.missingSince = null;
 	}
 
-	recordFound() {
-		this.missingSince = null;
-	}
+	record(outcome, now = Date.now()) {
+		// Only searches that covered every frame in a row can tell that the widget is gone.
+		this.missingSince = outcome === Outcome.NOT_FOUND ? (this.missingSince ?? now) : null;
 
-	recordNotFound(now = Date.now()) {
-		this.missingSince ??= now;
-	}
+		if (outcome === Outcome.CLICKED) {
+			this.clicks += 1;
+			this.misses = 0;
+			this.nextAttemptAt = now + CLICK_SETTLE_MS + this.clicks * CLICK_SETTLE_STEP_MS + jitter(250);
+			return;
+		}
 
-	recordClick(now = Date.now()) {
-		this.clicks += 1;
-		this.misses = 0;
-		this.nextAttemptAt = now + CLICK_SETTLE_MS + this.clicks * CLICK_SETTLE_STEP_MS + jitter(250);
-	}
-
-	recordMiss(now = Date.now()) {
 		this.misses += 1;
 		const backoff = Math.min(
 			MISS_BACKOFF_BASE_MS + this.misses * MISS_BACKOFF_STEP_MS,

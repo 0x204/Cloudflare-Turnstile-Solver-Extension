@@ -18,11 +18,9 @@ function attachChild(connection, sessionId, parentSessionId = undefined) {
 }
 
 async function children(connection) {
-	const sessions = [];
-	for await (const session of connection.openSessions()) {
-		if (!session.isRoot) sessions.push(session.id);
-	}
-	return sessions;
+	const sessions = connection.sessions().filter((session) => !session.isRoot);
+	await Promise.all(sessions.map((session) => session.ready));
+	return sessions.filter((session) => !session.closed).map((session) => session.id);
 }
 
 afterEach(() => {

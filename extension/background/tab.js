@@ -1,7 +1,7 @@
 import { CommandTimeoutError, isFatal } from "./cdp.js";
 import { DebuggerConnection } from "./connection.js";
 import { clamp } from "./geometry.js";
-import { WidgetJob } from "./job.js";
+import { Outcome, WidgetJob } from "./job.js";
 import { warn } from "./log.js";
 import { solveWidget } from "./solver.js";
 import { idle, SerialQueue } from "./timing.js";
@@ -161,16 +161,14 @@ export class Tab {
 			AbortSignal.timeout(Math.max(0, job.deadline - Date.now())),
 		]);
 
-		let clicked = false;
+		let outcome = Outcome.MISSED;
 		try {
-			clicked = await this.#solve(connection, job, signal);
+			outcome = await this.#solve(connection, job, signal);
 		} catch (error) {
 			if (isFatal(error)) throw error;
 			if (!signal.aborted) warn("Widget attempt failed:", error);
 		}
-
-		if (clicked) job.recordClick();
-		else job.recordMiss();
+		job.record(outcome);
 	}
 
 	#nextTickDelay() {

@@ -93,12 +93,9 @@ export class DebuggerConnection {
 		this.root.close();
 	}
 
-	async *openSessions() {
-		yield this.root;
-		for (const session of [...this.#children.values()]) {
-			await session.ready;
-			if (!session.closed) yield session;
-		}
+	// Child sessions may still be setting up: wait for `ready` and skip the ones closed by then.
+	sessions() {
+		return [this.root, ...this.#children.values()];
 	}
 
 	sessionForTarget(targetId) {
