@@ -89,8 +89,10 @@ export class CdpSession {
 		}
 	}
 
+	// Sent together, so one slow answer does not hold back the rest: Chrome still applies them in
+	// order. Rejects with the first failure.
 	async sendAll(commands) {
-		for (const [method, params] of commands) await this.send(method, params);
+		await Promise.all(commands.map(([method, params]) => this.send(method, params)));
 	}
 
 	close() {

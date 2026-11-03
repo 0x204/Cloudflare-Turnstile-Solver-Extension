@@ -1,4 +1,4 @@
-import { isFatal } from "./cdp.js";
+import { CommandTimeoutError, isFatal } from "./cdp.js";
 import { DebuggerConnection } from "./connection.js";
 import { clamp } from "./geometry.js";
 import { WidgetJob } from "./job.js";
@@ -115,7 +115,8 @@ export class Tab {
 			await connection.initialize();
 			await this.#process(connection);
 		} catch (error) {
-			graceful = !isFatal(error);
+			// A page that did not answer setup will not answer teardown either.
+			graceful = !isFatal(error) && !(error instanceof CommandTimeoutError);
 			throw error;
 		} finally {
 			await connection.close({ graceful });

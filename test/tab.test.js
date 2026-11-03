@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-import { FatalProtocolError } from "../extension/background/cdp.js";
+import { CommandTimeoutError, FatalProtocolError } from "../extension/background/cdp.js";
 import { Tab } from "../extension/background/tab.js";
 import { flush } from "./support.js";
 
 // Workers of one tab id run one after another, so every test gets its own tab.
 let nextTabId = 1;
 
-function fakeConnection() {
+function fakeConnection(initialize) {
 	return {
 		isOpen: true,
 		closedWith: null,
-		async initialize() {},
+		initialize,
 		async close(options) {
 			this.isOpen = false;
 			this.closedWith = options;
@@ -21,8 +21,8 @@ function fakeConnection() {
 	};
 }
 
-function setup(t, solve, { attached = Promise.resolve() } = {}) {
-	const connection = fakeConnection();
+function setup(t, solve, { attached = Promise.resolve(), initialize = async () => {} } = {}) {
+	const connection = fakeConnection(initialize);
 	const state = { connection, attaches: 0, idle: 0, solves: 0 };
 	const tab = new Tab(
 		nextTabId++,
@@ -119,6 +119,19 @@ describe("Tab", () => {
 
 		assert.equal(state.solves, 1);
 		assert.equal(state.idle, 1);
+		assert.deepEqual(state.connection.closedWith, { graceful: false });
+	});
+
+	it("closes without teardown when the page does not answer setup", async (t) => {
+		const { tab, state } = setup(t, async () => true, {
+			initialize: async () => {
+				throw new CommandTimeoutError("CDP command timed out: DOM.enable");
+			},
+		});
+		tab.begin("doc:w", "w");
+		await state.advance(100);
+
+		assert.equal(state.solves, 0);
 		assert.deepEqual(state.connection.closedWith, { graceful: false });
 	});
 

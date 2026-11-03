@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { ProtocolError } from "../extension/background/cdp.js";
 import { DebuggerConnection } from "../extension/background/connection.js";
-import { installDebugger } from "./support.js";
+import { flush, installDebugger } from "./support.js";
 
 const TAB_ID = 7;
+const STALE_SESSION = `Another debugger is already attached to the tab with id: ${TAB_ID}.`;
+
+const silent = () => new Promise(() => {});
 
 function attachChild(connection, sessionId, parentSessionId = undefined) {
 	connection.handleEvent({ tabId: TAB_ID, sessionId: parentSessionId }, "Target.attachedToTarget", {
@@ -32,9 +35,7 @@ describe("DebuggerConnection", () => {
 		const { calls } = installDebugger({
 			attach: async () => {
 				attempts += 1;
-				if (attempts === 1) {
-					throw new Error(`Another debugger is already attached to the tab with id: ${TAB_ID}.`);
-				}
+				if (attempts === 1) throw new Error(STALE_SESSION);
 			},
 		});
 		await DebuggerConnection.attach(TAB_ID);
@@ -42,6 +43,21 @@ describe("DebuggerConnection", () => {
 			calls.map(([name]) => name),
 			["attach", "detach", "attach"],
 		);
+	});
+
+	it("attaches when the session left behind is gone by the time it is detached", async () => {
+		let attempts = 0;
+		installDebugger({
+			attach: async () => {
+				attempts += 1;
+				if (attempts === 1) throw new Error(STALE_SESSION);
+			},
+			detach: async () => {
+				throw new Error(`Debugger is not attached to the tab with id: ${TAB_ID}.`);
+			},
+		});
+		await DebuggerConnection.attach(TAB_ID);
+		assert.equal(attempts, 2);
 	});
 
 	it("does not retry other attach failures", async () => {
@@ -114,5 +130,37 @@ describe("DebuggerConnection", () => {
 		assert.equal(calls.at(-1)[0], "detach");
 		attachChild(connection, "late");
 		assert.deepEqual(await children(connection), []);
+	});
+
+	describe("with mocked timers", () => {
+		beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout"] }));
+
+		it("finishes setting up a child frame that answers late", async (t) => {
+			const { calls } = installDebugger({
+				respond: async (method, sessionId) =>
+					sessionId === "busy" && method === "DOM.enable" ? silent() : {},
+			});
+			const connection = await DebuggerConnection.attach(TAB_ID);
+			attachChild(connection, "busy");
+			await flush();
+			t.mock.timers.tick(5000);
+
+			assert.deepEqual(await children(connection), ["busy"]);
+			const sent = calls.filter(([, sessionId]) => sessionId === "busy").map(([method]) => method);
+			for (const method of ["CSS.enable", "Page.enable", "Emulation.setFocusEmulationEnabled"]) {
+				assert.ok(sent.includes(method), `${method} was not sent`);
+			}
+		});
+
+		it("detaches after one command timeout when the page does not answer teardown", async (t) => {
+			const { calls } = installDebugger({ respond: silent });
+			const connection = await DebuggerConnection.attach(TAB_ID);
+			connection.close({ graceful: true });
+			await flush();
+			t.mock.timers.tick(5000);
+			await flush();
+
+			assert.equal(calls.at(-1)[0], "detach");
+		});
 	});
 });
