@@ -1,14 +1,22 @@
-// Stand-ins for the chrome.* APIs the extension uses, shared by the unit tests.
-
 import { DebuggerConnection } from "../extension/background/connection.js";
 
 export const EXTENSION_ID = "self";
+export const TAB_ID = 7;
 export const WIDGET_ID = "abc";
 
-const TAB_ID = 7;
+const COMMAND_TIMEOUT_MS = 5000;
 const CHALLENGE_URL = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/abc";
 
+export const never = () => new Promise(() => {});
+
 export const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+export async function letCommandsTimeOut(t, rounds = 1) {
+	for (let round = 0; round < rounds; round++) {
+		await flush();
+		t.mock.timers.tick(COMMAND_TIMEOUT_MS);
+	}
+}
 
 export function fakeEvent() {
 	const listeners = new Set();
@@ -23,8 +31,6 @@ export function fakeEvent() {
 	};
 }
 
-// Records every call as [name, ...details]. A `respond` that returns a promise which never
-// settles plays a frame that does not answer.
 export function fakeDebugger({
 	attach = async () => {},
 	detach = async () => {},
@@ -56,16 +62,15 @@ export function installDebugger(options) {
 	return globalThis.chrome.debugger;
 }
 
-// chrome.storage.session. While held, reads and writes wait, as they do on a slow disk.
 export function fakeStorage(initial = {}) {
 	const data = { ...initial };
 	let gate = Promise.resolve();
 	return {
 		data,
 		hold() {
-			let release;
-			gate = new Promise((resolve) => (release = resolve));
-			return release;
+			const { promise, resolve } = Promise.withResolvers();
+			gate = promise;
+			return resolve;
 		},
 		async get(key) {
 			await gate;
@@ -78,12 +83,19 @@ export function fakeStorage(initial = {}) {
 	};
 }
 
-// Answers for a page whose frames each hold the widget, hold nothing, or never answer.
-// `overrides` replaces the answer to single commands.
+export function fakeChrome({ storage = fakeStorage(), respond } = {}) {
+	return {
+		runtime: { id: EXTENSION_ID, onMessage: fakeEvent() },
+		tabs: { onRemoved: fakeEvent() },
+		storage: { session: storage },
+		debugger: fakeDebugger({ respond }),
+	};
+}
+
 function fakePage(frames, overrides) {
 	return async (method, sessionId, params) => {
 		const content = frames[sessionId ?? "root"];
-		if (content === "silent") return new Promise(() => {});
+		if (content === "silent") return never();
 		if (method in overrides) return overrides[method](sessionId, params);
 
 		switch (method) {
@@ -113,7 +125,6 @@ function fakePage(frames, overrides) {
 	};
 }
 
-// `frames` maps session ids to "widget", "empty" or "silent"; "root" is the tab itself.
 export async function connectToPage(frames, overrides = {}) {
 	installDebugger({ respond: fakePage(frames, overrides) });
 	const connection = await DebuggerConnection.attach(TAB_ID);
@@ -125,13 +136,4 @@ export async function connectToPage(frames, overrides = {}) {
 		});
 	}
 	return connection;
-}
-
-export function fakeChrome({ storage = fakeStorage(), respond } = {}) {
-	return {
-		runtime: { id: EXTENSION_ID, onMessage: fakeEvent() },
-		tabs: { onRemoved: fakeEvent() },
-		storage: { session: storage },
-		debugger: fakeDebugger({ respond }),
-	};
 }

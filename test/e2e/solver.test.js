@@ -36,7 +36,6 @@ async function openScenario(t, { showScrollbars = false, ...options } = {}) {
 	const page = await context.newPage();
 	await page.goto(HOST_URL);
 
-	// Playwright keeps its own session on the page, so ask through the extension's session.
 	const debuggerAttached = () =>
 		worker.evaluate(async (host) => {
 			const targets = await chrome.debugger.getTargets();

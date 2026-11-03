@@ -3,12 +3,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { ProtocolError } from "../extension/background/cdp.js";
 import { DebuggerConnection } from "../extension/background/connection.js";
-import { flush, installDebugger } from "./support.js";
+import { flush, installDebugger, letCommandsTimeOut, never, TAB_ID } from "./support.js";
 
-const TAB_ID = 7;
-const STALE_SESSION = `Another debugger is already attached to the tab with id: ${TAB_ID}.`;
-
-const silent = () => new Promise(() => {});
+const ALREADY_ATTACHED = `Another debugger is already attached to the tab with id: ${TAB_ID}.`;
 
 function attachChild(connection, sessionId, parentSessionId = undefined) {
 	connection.handleEvent({ tabId: TAB_ID, sessionId: parentSessionId }, "Target.attachedToTarget", {
@@ -33,7 +30,7 @@ describe("DebuggerConnection", () => {
 		const { calls } = installDebugger({
 			attach: async () => {
 				attempts += 1;
-				if (attempts === 1) throw new Error(STALE_SESSION);
+				if (attempts === 1) throw new Error(ALREADY_ATTACHED);
 			},
 		});
 		await DebuggerConnection.attach(TAB_ID);
@@ -48,7 +45,7 @@ describe("DebuggerConnection", () => {
 		installDebugger({
 			attach: async () => {
 				attempts += 1;
-				if (attempts === 1) throw new Error(STALE_SESSION);
+				if (attempts === 1) throw new Error(ALREADY_ATTACHED);
 			},
 			detach: async () => {
 				throw new Error(`Debugger is not attached to the tab with id: ${TAB_ID}.`);
@@ -136,12 +133,11 @@ describe("DebuggerConnection", () => {
 		it("finishes setting up a child frame that answers late", async (t) => {
 			const { calls } = installDebugger({
 				respond: async (method, sessionId) =>
-					sessionId === "busy" && method === "DOM.enable" ? silent() : {},
+					sessionId === "busy" && method === "DOM.enable" ? never() : {},
 			});
 			const connection = await DebuggerConnection.attach(TAB_ID);
 			attachChild(connection, "busy");
-			await flush();
-			t.mock.timers.tick(5000);
+			await letCommandsTimeOut(t);
 
 			assert.deepEqual(await children(connection), ["busy"]);
 			const sent = calls.filter(([, sessionId]) => sessionId === "busy").map(([method]) => method);
@@ -151,11 +147,10 @@ describe("DebuggerConnection", () => {
 		});
 
 		it("detaches after one command timeout when the page does not answer teardown", async (t) => {
-			const { calls } = installDebugger({ respond: silent });
+			const { calls } = installDebugger({ respond: never });
 			const connection = await DebuggerConnection.attach(TAB_ID);
 			connection.close({ graceful: true });
-			await flush();
-			t.mock.timers.tick(5000);
+			await letCommandsTimeOut(t);
 			await flush();
 
 			assert.equal(calls.at(-1)[0], "detach");
