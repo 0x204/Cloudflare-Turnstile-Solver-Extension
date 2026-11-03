@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import "../extension/shared.js";
-import { EXTENSION_ID, fakeChrome } from "./support.js";
+import { EXTENSION_ID, fakeChrome, fakeStorage } from "./support.js";
 
 const { Action } = globalThis.TurnstileProtocol;
 
@@ -77,5 +77,49 @@ describe("service worker", () => {
 		chrome.tabs.onRemoved.emit(3);
 		await sleep(20);
 		assert.deepEqual(stored.declinedTabs, []);
+	});
+
+	it("keeps watching tab closing while a declined tab is being saved", async (t) => {
+		const chrome = await startWorker(t);
+		const storage = chrome.storage.session;
+		begin(chrome, 4);
+		await sleep(20);
+
+		const release = storage.hold();
+		chrome.debugger.onDetach.emit({ tabId: 4 }, "canceled_by_user");
+		await sleep(10);
+		chrome.tabs.onRemoved.emit(4);
+		release();
+		await sleep(20);
+
+		assert.deepEqual(storage.data.declinedTabs, []);
+		assert.equal(chrome.tabs.onRemoved.size, 0);
+	});
+
+	describe("while the declined tabs are still loading", () => {
+		it("forgets a declined tab whose closing woke the worker", async (t) => {
+			const storage = fakeStorage({ declinedTabs: [5] });
+			const release = storage.hold();
+			const chrome = await startWorker(t, { storage });
+
+			chrome.tabs.onRemoved.emit(5);
+			release();
+			await sleep(10);
+
+			assert.deepEqual(storage.data.declinedTabs, []);
+			assert.equal(chrome.tabs.onRemoved.size, 0);
+		});
+
+		it("keeps the tabs declined earlier when another tab is declined", async (t) => {
+			const storage = fakeStorage({ declinedTabs: [5] });
+			const release = storage.hold();
+			const chrome = await startWorker(t, { storage });
+
+			chrome.debugger.onDetach.emit({ tabId: 12 }, "canceled_by_user");
+			release();
+			await sleep(10);
+
+			assert.deepEqual(storage.data.declinedTabs, [5, 12]);
+		});
 	});
 });
