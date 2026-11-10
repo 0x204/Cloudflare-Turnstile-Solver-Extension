@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { ProtocolError } from "../extension/background/cdp.js";
 import { DebuggerConnection } from "../extension/background/connection.js";
-import { flush, installDebugger, letCommandsTimeOut, never, TAB_ID } from "./support.js";
+import { installDebugger, letCommandsTimeOut, never, TAB_ID } from "./support.js";
 
 const ALREADY_ATTACHED = `Another debugger is already attached to the tab with id: ${TAB_ID}.`;
 
@@ -111,15 +111,10 @@ describe("DebuggerConnection", () => {
 		watch.dispose();
 	});
 
-	it("detaches even when teardown commands fail and ignores later attachments", async () => {
-		const { calls } = installDebugger({
-			respond: async (method) => {
-				if (method.endsWith(".disable")) throw new Error("Not enabled");
-				return {};
-			},
-		});
+	it("detaches without waiting for the page and ignores later attachments", async () => {
+		const { calls } = installDebugger({ respond: never });
 		const connection = await DebuggerConnection.attach(TAB_ID);
-		await connection.close({ graceful: true });
+		await connection.close();
 
 		assert.equal(connection.isOpen, false);
 		assert.equal(calls.at(-1)[0], "detach");
@@ -141,19 +136,9 @@ describe("DebuggerConnection", () => {
 
 			assert.deepEqual(await children(connection), ["busy"]);
 			const sent = calls.filter(([, sessionId]) => sessionId === "busy").map(([method]) => method);
-			for (const method of ["CSS.enable", "Page.enable", "Emulation.setFocusEmulationEnabled"]) {
+			for (const method of ["Page.enable", "Emulation.setFocusEmulationEnabled"]) {
 				assert.ok(sent.includes(method), `${method} was not sent`);
 			}
-		});
-
-		it("detaches after one command timeout when the page does not answer teardown", async (t) => {
-			const { calls } = installDebugger({ respond: never });
-			const connection = await DebuggerConnection.attach(TAB_ID);
-			connection.close({ graceful: true });
-			await letCommandsTimeOut(t);
-			await flush();
-
-			assert.equal(calls.at(-1)[0], "detach");
 		});
 	});
 });

@@ -26,7 +26,7 @@ export async function solveWidget(connection, job, signal) {
 			signal: scope,
 			confirm: plan.confirm,
 		});
-		return clicked ? Outcome.CLICKED : Outcome.MISSED;
+		return clicked ? Outcome.CLICKED : Outcome.ABANDONED;
 	} catch (error) {
 		if (watch.signal.aborted && error === watch.signal.reason) return Outcome.MISSED;
 		throw error;

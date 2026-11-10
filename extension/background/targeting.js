@@ -24,6 +24,8 @@ const CHECKBOX_OFFSET = {
 	maxMissShift: 0.08,
 };
 
+const styledSessions = new WeakSet();
+
 function isRendered(computedStyle) {
 	const style = Object.fromEntries(computedStyle.map(({ name, value }) => [name, value]));
 	return (
@@ -54,10 +56,19 @@ function cssContentSize(model) {
 	};
 }
 
+async function computedStyleOf(session, nodeId) {
+	if (!styledSessions.has(session)) {
+		await session.send("CSS.enable");
+		styledSessions.add(session);
+	}
+	const { computedStyle = [] } = await session.send("CSS.getComputedStyleForNode", { nodeId });
+	return computedStyle;
+}
+
 async function measureFrame(session, nodeId) {
-	const [box, { computedStyle = [] }, metrics] = await Promise.all([
+	const [box, computedStyle, metrics] = await Promise.all([
 		tolerate(session.send("DOM.getBoxModel", { nodeId }), null),
-		session.send("CSS.getComputedStyleForNode", { nodeId }),
+		computedStyleOf(session, nodeId),
 		session.send("Page.getLayoutMetrics"),
 	]);
 	const model = box?.model;

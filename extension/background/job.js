@@ -13,16 +13,26 @@ const MISSING_GRACE_MS = 5000;
 
 export const Outcome = Object.freeze({
 	CLICKED: "clicked",
+	ABANDONED: "abandoned",
 	MISSED: "missed",
 	NOT_FOUND: "not-found",
 });
 
+export function spendsClick(outcome) {
+	return outcome === Outcome.CLICKED || outcome === Outcome.ABANDONED;
+}
+
+export function jobKey(documentKey, widgetId) {
+	return `${documentKey}:${widgetId}`;
+}
+
 export class WidgetJob {
 	#controller = new AbortController();
 
-	constructor(key, widgetId, now = Date.now()) {
-		this.key = key;
+	constructor(documentKey, widgetId, now = Date.now()) {
+		this.documentKey = documentKey;
 		this.widgetId = widgetId;
+		this.key = jobKey(documentKey, widgetId);
 		this.restart(now);
 	}
 
@@ -61,6 +71,7 @@ export class WidgetJob {
 
 	record(outcome, now = Date.now()) {
 		this.missingSince = outcome === Outcome.NOT_FOUND ? (this.missingSince ?? now) : null;
+		if (spendsClick(outcome)) this.clicks += 1;
 		if (outcome === Outcome.CLICKED) this.#settleAfterClick(now);
 		else this.#backOffAfterMiss(now);
 	}
@@ -70,7 +81,6 @@ export class WidgetJob {
 	}
 
 	#settleAfterClick(now) {
-		this.clicks += 1;
 		this.misses = 0;
 		const settle = CLICK_SETTLE_MS + this.clicks * CLICK_SETTLE_STEP_MS;
 		this.nextAttemptAt = now + settle + jitter(CLICK_SETTLE_JITTER_MS);

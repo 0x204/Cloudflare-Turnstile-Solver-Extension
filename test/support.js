@@ -1,10 +1,10 @@
+import { COMMAND_TIMEOUT_MS } from "../extension/background/cdp.js";
 import { DebuggerConnection } from "../extension/background/connection.js";
 
 export const EXTENSION_ID = "self";
 export const TAB_ID = 7;
 export const WIDGET_ID = "abc";
 
-const COMMAND_TIMEOUT_MS = 5000;
 const CHALLENGE_URL = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/abc";
 
 export const never = () => new Promise(() => {});

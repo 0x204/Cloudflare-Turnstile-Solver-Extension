@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 
-import { idle, SerialQueue, sleep, withTimeout } from "../extension/background/timing.js";
+import {
+	deadlineSignal,
+	idle,
+	SerialQueue,
+	sleep,
+	withTimeout,
+} from "../extension/background/timing.js";
 
 describe("sleep", () => {
 	it("resolves after the delay", async () => {
@@ -31,6 +37,40 @@ describe("idle", () => {
 		controller.abort();
 		await pending;
 		assert.ok(performance.now() - started < 1000);
+	});
+});
+
+describe("deadlineSignal", () => {
+	beforeEach((t) => t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 }));
+
+	it("aborts when the deadline passes", (t) => {
+		const { signal } = deadlineSignal(() => 1500);
+		t.mock.timers.tick(499);
+		assert.equal(signal.aborted, false);
+		t.mock.timers.tick(1);
+		assert.equal(signal.reason.name, "TimeoutError");
+	});
+
+	it("is aborted from the start when the deadline is already behind", () => {
+		assert.equal(deadlineSignal(() => 1000).signal.aborted, true);
+	});
+
+	it("follows a deadline that moves while it waits", (t) => {
+		let deadline = 1500;
+		const { signal } = deadlineSignal(() => deadline);
+		t.mock.timers.tick(400);
+		deadline = 2000;
+		t.mock.timers.tick(599);
+		assert.equal(signal.aborted, false);
+		t.mock.timers.tick(1);
+		assert.equal(signal.aborted, true);
+	});
+
+	it("never aborts once disposed", (t) => {
+		const { signal, dispose } = deadlineSignal(() => 1500);
+		dispose();
+		t.mock.timers.tick(1000);
+		assert.equal(signal.aborted, false);
 	});
 });
 

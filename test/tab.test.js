@@ -11,11 +11,9 @@ let nextTabId = 1;
 function fakeConnection(initialize) {
 	return {
 		isOpen: true,
-		closedWith: null,
 		initialize,
-		async close(options) {
+		async close() {
 			this.isOpen = false;
-			this.closedWith = options;
 		},
 		handleEvent() {},
 	};
@@ -63,7 +61,16 @@ describe("Tab", () => {
 
 		assert.equal(state.solves, 2);
 		assert.equal(state.idle, 1);
-		assert.deepEqual(state.connection.closedWith, { graceful: true });
+		assert.equal(state.connection.isOpen, false);
+	});
+
+	it("counts an approach abandoned before the press as a click", async (t) => {
+		const { tab, state } = setup(t, async () => Outcome.ABANDONED);
+		tab.begin("doc:w", "w");
+		await state.advance(5000);
+
+		assert.equal(state.solves, 2);
+		assert.equal(state.idle, 1);
 	});
 
 	it("aborts the attempt in progress when the widget ends", async (t) => {
@@ -78,7 +85,7 @@ describe("Tab", () => {
 		});
 		tab.begin("doc:w", "w");
 		await state.advance(100);
-		tab.end("doc:w");
+		tab.end("doc:w", "w");
 		await state.advance(100);
 
 		assert.equal(aborted, true);
@@ -120,7 +127,7 @@ describe("Tab", () => {
 		assert.equal(attempts, 2);
 	});
 
-	it("closes without teardown and drops all widgets after a fatal error", async (t) => {
+	it("detaches and drops all widgets after a fatal error", async (t) => {
 		const { tab, state } = setup(t, async () => {
 			throw new FatalProtocolError("Debugger is not attached to the tab with id: 1.");
 		});
@@ -130,10 +137,10 @@ describe("Tab", () => {
 
 		assert.equal(state.solves, 1);
 		assert.equal(state.idle, 1);
-		assert.deepEqual(state.connection.closedWith, { graceful: false });
+		assert.equal(state.connection.isOpen, false);
 	});
 
-	it("closes without teardown when the page does not answer setup", async (t) => {
+	it("detaches when the page does not answer setup", async (t) => {
 		const { tab, state } = setup(t, async () => Outcome.CLICKED, {
 			initialize: async () => {
 				throw new CommandTimeoutError("CDP command timed out: DOM.enable");
@@ -143,7 +150,7 @@ describe("Tab", () => {
 		await state.advance(100);
 
 		assert.equal(state.solves, 0);
-		assert.deepEqual(state.connection.closedWith, { graceful: false });
+		assert.equal(state.connection.isOpen, false);
 	});
 
 	it("does not solve anything when cancelled while attaching", async (t) => {
@@ -172,5 +179,35 @@ describe("Tab", () => {
 		tab.begin("doc:w", "w");
 		await state.advance(500);
 		assert.equal(state.solves, 3);
+	});
+
+	it("stops clicking in a document that has used up its clicks", async (t) => {
+		const { tab, state } = setup(t, async () => Outcome.CLICKED);
+		for (let round = 0; round < 5; round++) {
+			tab.begin("doc", `w${round}`);
+			await state.advance(7000);
+		}
+
+		assert.equal(state.solves, 6);
+	});
+
+	it("keeps an attempt going when the widget asks again before the old deadline", async (t) => {
+		let aborted = false;
+		const { tab, state } = setup(t, (connection, job, signal) => {
+			return new Promise((resolve) => {
+				signal.addEventListener("abort", () => {
+					aborted = true;
+					resolve(Outcome.MISSED);
+				});
+			});
+		});
+		tab.begin("doc:w", "w");
+		await state.advance(29_000);
+		tab.begin("doc:w", "w");
+		await state.advance(2000);
+		assert.equal(aborted, false);
+
+		await state.advance(29_000);
+		assert.equal(aborted, true);
 	});
 });

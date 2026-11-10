@@ -1,19 +1,16 @@
-import { CommandTimeoutError, isFatal } from "./cdp.js";
+import { ClickBudget } from "./budget.js";
+import { isFatal } from "./cdp.js";
 import { DebuggerConnection } from "./connection.js";
 import { clamp } from "./geometry.js";
-import { Outcome, WidgetJob } from "./job.js";
+import { jobKey, Outcome, spendsClick, WidgetJob } from "./job.js";
 import { warn } from "./log.js";
 import { solveWidget } from "./solver.js";
-import { idle, SerialQueue } from "./timing.js";
+import { deadlineSignal, idle, SerialQueue } from "./timing.js";
 
 const MIN_TICK_MS = 50;
 const MAX_TICK_MS = 1000;
 
 const lifecycles = new SerialQueue();
-
-function allowsTeardown(error) {
-	return !isFatal(error) && !(error instanceof CommandTimeoutError);
-}
 
 export class Tab {
 	#jobs = new Map();
@@ -24,16 +21,22 @@ export class Tab {
 	#onIdle;
 	#attach;
 	#solve;
+	#budget;
 
 	constructor(
 		id,
 		onIdle,
-		{ attach = (tabId) => DebuggerConnection.attach(tabId), solve = solveWidget } = {},
+		{
+			attach = (tabId) => DebuggerConnection.attach(tabId),
+			solve = solveWidget,
+			budget = new ClickBudget(),
+		} = {},
 	) {
 		this.id = id;
 		this.#onIdle = onIdle;
 		this.#attach = attach;
 		this.#solve = solve;
+		this.#budget = budget;
 	}
 
 	get cancelled() {
@@ -44,10 +47,11 @@ export class Tab {
 		return this.#connection?.isOpen ?? false;
 	}
 
-	begin(key, widgetId) {
+	begin(documentKey, widgetId) {
 		const now = Date.now();
+		const key = jobKey(documentKey, widgetId);
 		const job = this.#jobs.get(key);
-		if (!job) this.#jobs.set(key, new WidgetJob(key, widgetId, now));
+		if (!job) this.#jobs.set(key, new WidgetJob(documentKey, widgetId, now));
 		else if (job.exhausted || job.isExpired(now)) job.restart(now);
 		else job.extend(now);
 
@@ -55,8 +59,8 @@ export class Tab {
 		this.#start();
 	}
 
-	end(key) {
-		const job = this.#jobs.get(key);
+	end(documentKey, widgetId) {
+		const job = this.#jobs.get(jobKey(documentKey, widgetId));
 		if (!job) return;
 		this.#drop(job);
 		this.#wake?.abort();
@@ -113,16 +117,12 @@ export class Tab {
 		}
 
 		this.#connection = connection;
-		let graceful = true;
 		try {
 			this.#lifetime.signal.throwIfAborted();
 			await connection.initialize();
 			await this.#process(connection);
-		} catch (error) {
-			graceful = allowsTeardown(error);
-			throw error;
 		} finally {
-			await connection.close({ graceful });
+			await connection.close();
 			this.#connection = null;
 		}
 	}
@@ -149,6 +149,11 @@ export class Tab {
 					this.#drop(job);
 					continue;
 				}
+				if (!this.#budget.allows(job.documentKey)) {
+					warn("The document has used up its clicks:", job.widgetId);
+					this.#drop(job);
+					continue;
+				}
 
 				await this.#attempt(connection, job);
 			}
@@ -158,11 +163,8 @@ export class Tab {
 	}
 
 	async #attempt(connection, job) {
-		const signal = AbortSignal.any([
-			this.#lifetime.signal,
-			job.signal,
-			AbortSignal.timeout(Math.max(0, job.deadline - Date.now())),
-		]);
+		const expiry = deadlineSignal(() => job.deadline);
+		const signal = AbortSignal.any([this.#lifetime.signal, job.signal, expiry.signal]);
 
 		let outcome = Outcome.MISSED;
 		try {
@@ -170,8 +172,11 @@ export class Tab {
 		} catch (error) {
 			if (isFatal(error)) throw error;
 			if (!signal.aborted) warn("Widget attempt failed:", error);
+		} finally {
+			expiry.dispose();
 		}
 		job.record(outcome);
+		if (spendsClick(outcome)) this.#budget.spend(job.documentKey);
 	}
 
 	#nextTickDelay() {

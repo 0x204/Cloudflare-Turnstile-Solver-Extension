@@ -25,6 +25,20 @@ export function idle(ms, signal) {
 	return sleep(ms, signal).catch(noop);
 }
 
+export function deadlineSignal(currentDeadline) {
+	const controller = new AbortController();
+	let timer;
+
+	const check = () => {
+		const remaining = currentDeadline() - Date.now();
+		if (remaining > 0) timer = setTimeout(check, remaining);
+		else controller.abort(new DOMException("Deadline passed", "TimeoutError"));
+	};
+	check();
+
+	return { signal: controller.signal, dispose: () => clearTimeout(timer) };
+}
+
 export function withTimeout(promise, ms, createError) {
 	let timer;
 	const timeout = new Promise((_, reject) => {
