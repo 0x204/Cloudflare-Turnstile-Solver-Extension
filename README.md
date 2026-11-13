@@ -7,7 +7,7 @@ A Chrome extension that clicks the checkbox of interactive Cloudflare Turnstile 
 1. `content/relay.js` listens for `postMessage` events from Turnstile iframes and tells the service worker when a widget asks for interaction and when it is done. When the page goes away, it ends the widgets that are still open, and starts them again if the page comes back from the back/forward cache.
 2. The service worker attaches `chrome.debugger` to the tab, finds the widget iframe (including inside cross-origin frames), scrolls it into view and maps the checkbox position to page coordinates.
 3. The pointer moves along a curved path and clicks with input events dispatched through the debugger. The target is checked again right before the press.
-4. If the widget does not finish, the extension clicks once more after a pause, so a widget gets at most two clicks within 30 seconds. If it asks for interaction again after both clicks or after those 30 seconds, it gets two new clicks. An approach that is called off because the target changed under the pointer counts as a click. A document gets at most six clicks for as long as the service worker stays alive. A widget that no frame of the page has held for 5 seconds is dropped, and the debugger is detached as soon as no widgets are pending.
+4. If the widget does not finish, the extension clicks once more after a pause, so a widget gets at most two clicks within 30 seconds. If it asks for interaction again after both clicks or after those 30 seconds, it gets two new clicks. An approach that is called off because the target changed under the pointer counts as a click. A tab gets at most ten clicks in ten minutes. A widget that no frame of the page has held for 5 seconds is dropped, and the debugger is detached as soon as no widgets are pending.
 
 ## Install
 
@@ -25,7 +25,7 @@ While the debugger is attached, the extension emulates focus so that clicks also
 
 The extension finds and clicks the checkbox, including on full-page challenges, inside shadow DOM and inside nested cross-origin frames. Whether Cloudflare accepts the result is decided by its own checks of the browser and the network. Headless or automated browsers are usually rejected after the click.
 
-The click is a real input event, so the page that embeds the widget receives user activation from it without you touching the page. For a few seconds after the click it can open a pop-up, write to the clipboard or ask for fullscreen. The click limit per document bounds how often a page can repeat this, but a page that reloads itself starts with a new limit.
+The click is a real input event, so the page that embeds the widget receives user activation from it without you touching the page. For a few seconds after the click it can open a pop-up, write to the clipboard or ask for fullscreen. The click limit per tab bounds how often a page can repeat this, also when it reloads itself. A pop-up it opens is a new tab with a limit of its own.
 
 Chrome does not let an extension debug a page that contains a frame of another extension, such as the inline menu of some password managers. While such a frame is on the page, the widget is not handled; the extension tries again the next time the widget asks for interaction.
 
@@ -56,7 +56,7 @@ extension/
     tab.js             per-tab worker: debugger lifecycle and job scheduling
     declined.js        tabs where the user cancelled debugging
     job.js             retry and timeout policy for a single widget
-    budget.js          click limit per document
+    budget.js          click limit per tab
     solver.js          one attempt: locate, scroll, plan and click
     connection.js      debugger sessions of the tab and its out-of-process frames
     cdp.js             CDP session wrapper, timeouts and error classification

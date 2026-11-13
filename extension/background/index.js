@@ -5,9 +5,9 @@ import { Action, isValidWidgetId } from "./protocol.js";
 import { Tab } from "./tab.js";
 
 const tabs = new Map();
-const budget = new ClickBudget();
+const budget = new ClickBudget(chrome.storage.session);
 const declined = new DeclinedTabs(chrome.storage.session);
-const loaded = declined.load().finally(syncTabListener);
+const loaded = Promise.all([budget.load(), declined.load()]).finally(syncTabListener);
 
 function afterLoad(handler) {
 	return (...args) => {
@@ -37,7 +37,7 @@ function release(tab) {
 function tabFor(tabId) {
 	let tab = tabs.get(tabId);
 	if (!tab) {
-		tab = new Tab(tabId, release, { budget });
+		tab = new Tab(tabId, release, budget);
 		tabs.set(tabId, tab);
 		syncTabListener();
 	}
@@ -49,8 +49,9 @@ function cancelTab(tabId) {
 	if (tab) release(tab);
 }
 
-function documentKeyOf(sender) {
-	return sender.documentId ?? `tab:${sender.tab.id}:frame:${sender.frameId ?? 0}`;
+function widgetKey(sender, widgetId) {
+	const documentKey = sender.documentId ?? `frame:${sender.frameId ?? 0}`;
+	return `${documentKey}:${widgetId}`;
 }
 
 function replacesTopDocument(source, method, params) {
@@ -62,13 +63,13 @@ function handleMessage(message, sender) {
 	if (sender.id !== chrome.runtime.id || !Number.isInteger(tabId)) return;
 	if (!isValidWidgetId(message?.widgetId)) return;
 
-	const documentKey = documentKeyOf(sender);
+	const key = widgetKey(sender, message.widgetId);
 	if (message.action === Action.END) {
-		tabs.get(tabId)?.end(documentKey, message.widgetId);
+		tabs.get(tabId)?.end(key);
 	} else if (message.action === Action.BEGIN) {
 		if (declined.has(tabId)) return;
-		if (budget.allows(documentKey)) tabFor(tabId).begin(documentKey, message.widgetId);
-		else warn(`A document in tab ${tabId} has used up its clicks.`);
+		if (budget.allows(tabId)) tabFor(tabId).begin(key, message.widgetId);
+		else warn(`Tab ${tabId} has used up its clicks for now.`);
 	}
 }
 

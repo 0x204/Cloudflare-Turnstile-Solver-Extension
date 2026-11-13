@@ -22,17 +22,12 @@ export function spendsClick(outcome) {
 	return outcome === Outcome.CLICKED || outcome === Outcome.ABANDONED;
 }
 
-export function jobKey(documentKey, widgetId) {
-	return `${documentKey}:${widgetId}`;
-}
-
 export class WidgetJob {
 	#controller = new AbortController();
 
-	constructor(documentKey, widgetId, now = Date.now()) {
-		this.documentKey = documentKey;
+	constructor(key, widgetId, now = Date.now()) {
+		this.key = key;
 		this.widgetId = widgetId;
-		this.key = jobKey(documentKey, widgetId);
 		this.restart(now);
 	}
 

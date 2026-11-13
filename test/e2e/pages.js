@@ -73,14 +73,16 @@ function embedPage(level, layout) {
 </body>`;
 }
 
-function widgetPage({ clicksToSolve, endEarly }) {
+function widgetPage({ clicksToSolve, endEarly, rightToLeft }) {
 	const { left, top, size } = CHECKBOX;
+	const nearEdge = rightToLeft ? "right" : "left";
 	return `<!doctype html>
+<html dir="${rightToLeft ? "rtl" : "ltr"}">
 <body style="margin:0;font:14px sans-serif">
 	<div style="position:absolute;inset:0;background:#fafafa;border:1px solid #ddd">
-		<div style="position:absolute;left:${left}px;top:${top}px;width:${size}px;height:${size}px;
+		<div style="position:absolute;${nearEdge}:${left}px;top:${top}px;width:${size}px;height:${size}px;
 			box-sizing:border-box;border:2px solid #666"></div>
-		<span style="position:absolute;left:56px;top:23px">Verify you are human</span>
+		<span style="position:absolute;${nearEdge}:56px;top:23px">Verify you are human</span>
 	</div>
 	<script>
 		const post = (event) => parent.postMessage(
@@ -119,6 +121,7 @@ export function scenarioRoutes({
 	overlayMs = 0,
 	clicksToSolve = 1,
 	endEarly = false,
+	rightToLeft = false,
 }) {
 	const layout = {
 		depth,
@@ -140,6 +143,6 @@ export function scenarioRoutes({
 		"https://host.test/**": hostPage(layout),
 		"https://embed1.test/**": embedPage(1, layout),
 		"https://embed2.test/**": embedPage(2, layout),
-		"https://challenges.cloudflare.com/**": widgetPage({ clicksToSolve, endEarly }),
+		"https://challenges.cloudflare.com/**": widgetPage({ clicksToSolve, endEarly, rightToLeft }),
 	};
 }

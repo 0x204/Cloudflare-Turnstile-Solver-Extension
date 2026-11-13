@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
+import { ClickBudget } from "../extension/background/budget.js";
 import { CommandTimeoutError, FatalProtocolError } from "../extension/background/cdp.js";
 import { Outcome } from "../extension/background/job.js";
 import { Tab } from "../extension/background/tab.js";
-import { flush } from "./support.js";
+import { fakeStorage, flush } from "./support.js";
 
 let nextTabId = 1;
 
@@ -28,6 +29,7 @@ function setup(t, solve, { attached = Promise.resolve(), initialize = async () =
 			state.idle += 1;
 			released.cancel();
 		},
+		new ClickBudget(fakeStorage()),
 		{
 			attach: async () => {
 				state.attaches += 1;
@@ -85,7 +87,7 @@ describe("Tab", () => {
 		});
 		tab.begin("doc:w", "w");
 		await state.advance(100);
-		tab.end("doc:w", "w");
+		tab.end("doc:w");
 		await state.advance(100);
 
 		assert.equal(aborted, true);
@@ -181,14 +183,14 @@ describe("Tab", () => {
 		assert.equal(state.solves, 3);
 	});
 
-	it("stops clicking in a document that has used up its clicks", async (t) => {
+	it("stops clicking once the tab has used up its clicks", async (t) => {
 		const { tab, state } = setup(t, async () => Outcome.CLICKED);
-		for (let round = 0; round < 5; round++) {
-			tab.begin("doc", `w${round}`);
+		for (let round = 0; round < 7; round++) {
+			tab.begin(`doc-${round}:w`, "w");
 			await state.advance(7000);
 		}
 
-		assert.equal(state.solves, 6);
+		assert.equal(state.solves, 10);
 	});
 
 	it("keeps an attempt going when the widget asks again before the old deadline", async (t) => {

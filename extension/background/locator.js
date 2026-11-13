@@ -3,7 +3,7 @@ import { isChallengeUrl, widgetFrameId } from "./protocol.js";
 
 const MAX_SEARCH_RESULTS = 64;
 
-function attribute(node, name) {
+export function attribute(node, name) {
 	const attributes = node.attributes ?? [];
 	for (let index = 0; index < attributes.length; index += 2) {
 		if (attributes[index] === name) return attributes[index + 1];

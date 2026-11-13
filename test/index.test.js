@@ -50,6 +50,15 @@ describe("service worker", () => {
 		assert.equal(chrome.tabs.onRemoved.size, 1);
 	});
 
+	it("leaves a tab alone once it has used up its clicks", async (t) => {
+		const clickTimes = { 9: Array.from({ length: 10 }, () => Date.now()) };
+		const chrome = await startWorker(t, { storage: fakeStorage({ clickTimes }) });
+		begin(chrome, 9);
+		begin(chrome, 10);
+		await flush();
+		assert.deepEqual(attachedTabs(chrome), [10]);
+	});
+
 	it("ignores messages from other extensions", async (t) => {
 		const chrome = await startWorker(t);
 		begin(chrome, 2, { extensionId: "other" });

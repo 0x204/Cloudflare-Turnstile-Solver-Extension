@@ -1,8 +1,7 @@
-import { ClickBudget } from "./budget.js";
 import { isFatal } from "./cdp.js";
 import { DebuggerConnection } from "./connection.js";
 import { clamp } from "./geometry.js";
-import { jobKey, Outcome, spendsClick, WidgetJob } from "./job.js";
+import { Outcome, spendsClick, WidgetJob } from "./job.js";
 import { warn } from "./log.js";
 import { solveWidget } from "./solver.js";
 import { deadlineSignal, idle, SerialQueue } from "./timing.js";
@@ -19,24 +18,21 @@ export class Tab {
 	#connection = null;
 	#running = false;
 	#onIdle;
+	#budget;
 	#attach;
 	#solve;
-	#budget;
 
 	constructor(
 		id,
 		onIdle,
-		{
-			attach = (tabId) => DebuggerConnection.attach(tabId),
-			solve = solveWidget,
-			budget = new ClickBudget(),
-		} = {},
+		budget,
+		{ attach = (tabId) => DebuggerConnection.attach(tabId), solve = solveWidget } = {},
 	) {
 		this.id = id;
 		this.#onIdle = onIdle;
+		this.#budget = budget;
 		this.#attach = attach;
 		this.#solve = solve;
-		this.#budget = budget;
 	}
 
 	get cancelled() {
@@ -47,11 +43,10 @@ export class Tab {
 		return this.#connection?.isOpen ?? false;
 	}
 
-	begin(documentKey, widgetId) {
+	begin(key, widgetId) {
 		const now = Date.now();
-		const key = jobKey(documentKey, widgetId);
 		const job = this.#jobs.get(key);
-		if (!job) this.#jobs.set(key, new WidgetJob(documentKey, widgetId, now));
+		if (!job) this.#jobs.set(key, new WidgetJob(key, widgetId, now));
 		else if (job.exhausted || job.isExpired(now)) job.restart(now);
 		else job.extend(now);
 
@@ -59,8 +54,8 @@ export class Tab {
 		this.#start();
 	}
 
-	end(documentKey, widgetId) {
-		const job = this.#jobs.get(jobKey(documentKey, widgetId));
+	end(key) {
+		const job = this.#jobs.get(key);
 		if (!job) return;
 		this.#drop(job);
 		this.#wake?.abort();
@@ -149,8 +144,8 @@ export class Tab {
 					this.#drop(job);
 					continue;
 				}
-				if (!this.#budget.allows(job.documentKey)) {
-					warn("The document has used up its clicks:", job.widgetId);
+				if (!this.#budget.allows(this.id, now)) {
+					warn(`Tab ${this.id} has used up its clicks for now:`, job.widgetId);
 					this.#drop(job);
 					continue;
 				}
@@ -176,7 +171,7 @@ export class Tab {
 			expiry.dispose();
 		}
 		job.record(outcome);
-		if (spendsClick(outcome)) this.#budget.spend(job.documentKey);
+		if (spendsClick(outcome)) this.#budget.spend(this.id);
 	}
 
 	#nextTickDelay() {
