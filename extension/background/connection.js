@@ -12,17 +12,8 @@ const AUTO_ATTACH = {
 const SETUP = [
 	["Target.setAutoAttach", AUTO_ATTACH],
 	["DOM.enable"],
-	["CSS.enable"],
 	["Page.enable"],
 	["Emulation.setFocusEmulationEnabled", { enabled: true }],
-];
-
-const TEARDOWN = [
-	["Emulation.setFocusEmulationEnabled", { enabled: false }],
-	["Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }],
-	["CSS.disable"],
-	["DOM.disable"],
-	["Page.disable"],
 ];
 
 class FrameWatch {
@@ -80,9 +71,8 @@ export class DebuggerConnection {
 		return this.root.sendAll(SETUP);
 	}
 
-	async close({ graceful }) {
+	async close() {
 		this.#closing = true;
-		if (graceful) await this.root.sendAll(TEARDOWN).catch(() => {});
 		await chrome.debugger.detach(this.root.debuggee).catch(() => {});
 		for (const session of this.#children.values()) session.close();
 		this.#children.clear();

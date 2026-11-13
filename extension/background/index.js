@@ -1,11 +1,13 @@
+import { ClickBudget } from "./budget.js";
 import { DeclinedTabs } from "./declined.js";
 import { warn } from "./log.js";
 import { Action, isValidWidgetId } from "./protocol.js";
 import { Tab } from "./tab.js";
 
 const tabs = new Map();
+const budget = new ClickBudget(chrome.storage.session);
 const declined = new DeclinedTabs(chrome.storage.session);
-const loaded = declined.load().finally(syncTabListener);
+const loaded = Promise.all([budget.load(), declined.load()]).finally(syncTabListener);
 
 function afterLoad(handler) {
 	return (...args) => {
@@ -35,7 +37,7 @@ function release(tab) {
 function tabFor(tabId) {
 	let tab = tabs.get(tabId);
 	if (!tab) {
-		tab = new Tab(tabId, release);
+		tab = new Tab(tabId, release, budget);
 		tabs.set(tabId, tab);
 		syncTabListener();
 	}
@@ -66,7 +68,8 @@ function handleMessage(message, sender) {
 		tabs.get(tabId)?.end(key);
 	} else if (message.action === Action.BEGIN) {
 		if (declined.has(tabId)) return;
-		tabFor(tabId).begin(key, message.widgetId);
+		if (budget.allows(tabId)) tabFor(tabId).begin(key, message.widgetId);
+		else warn(`Tab ${tabId} has used up its clicks for now.`);
 	}
 }
 

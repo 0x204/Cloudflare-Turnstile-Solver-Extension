@@ -82,8 +82,11 @@ async function openScenario(t, { showScrollbars = false, ...options } = {}) {
 	};
 }
 
-function assertCheckboxClick(click) {
-	const { left, top, size } = CHECKBOX;
+const WIDGET_WIDTH = 300;
+
+function assertCheckboxClick(click, { rightToLeft = false } = {}) {
+	const { top, size } = CHECKBOX;
+	const left = rightToLeft ? WIDGET_WIDTH - CHECKBOX.left - size : CHECKBOX.left;
 	assert.equal(click.trusted, true);
 	assert.ok(click.x >= left && click.x < left + size, `x=${click.x}`);
 	assert.ok(click.y >= top && click.y < top + size, `y=${click.y}`);
@@ -179,6 +182,12 @@ describe("solver against a local Turnstile mock", { concurrency: 3 }, () => {
 			innerTail: 1200,
 		});
 		await assertSolvedOnce(scenario);
+	});
+
+	it("clicks the checkbox on the right of a right-to-left widget", TEST, async (t) => {
+		const scenario = await openScenario(t, { rightToLeft: true });
+		const [click] = await scenario.waitForClicks(1);
+		assertCheckboxClick(click, { rightToLeft: true });
 	});
 
 	it("clicks a wide flexible widget", TEST, async (t) => {

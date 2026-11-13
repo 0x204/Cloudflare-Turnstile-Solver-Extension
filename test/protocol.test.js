@@ -31,7 +31,7 @@ describe("parseChallengeMessage", () => {
 	});
 
 	it("turns terminal events into an end action", () => {
-		for (const event of ["complete", "interactiveEnd", "tokenExpired", "challengeFailed"]) {
+		for (const event of ["complete", "interactiveEnd", "tokenExpired", "widgetStale"]) {
 			assert.deepEqual(parse(challengeData(event)), { action: Action.END, widgetId: "abc123" });
 		}
 	});
@@ -100,17 +100,16 @@ describe("isTerminalEvent", () => {
 		for (const event of events) assert.equal(isTerminalEvent(event), true, event);
 	});
 
-	it("recognizes unknown failures in camelCase, kebab-case and snake_case", () => {
-		for (const event of ["challengeFailed", "widgetError", "renderTimeout", "turnstile-error"]) {
-			assert.equal(isTerminalEvent(event), true, event);
-		}
-		assert.equal(isTerminalEvent("token_expired"), true);
-	});
-
-	it("ignores progress events and words that only contain a terminal word", () => {
-		for (const event of ["interactiveBegin", "requestExtraParams", "errorless", "staleness"]) {
-			assert.equal(isTerminalEvent(event), false, event);
-		}
+	it("does not guess at events it does not know", () => {
+		const events = [
+			"interactiveBegin",
+			"requestExtraParams",
+			"challengeFailed",
+			"refreshTranslations",
+			"turnstile-error",
+			"token_expired",
+		];
+		for (const event of events) assert.equal(isTerminalEvent(event), false, event);
 	});
 });
 

@@ -1,19 +1,15 @@
-import { CommandTimeoutError, isFatal } from "./cdp.js";
+import { isFatal } from "./cdp.js";
 import { DebuggerConnection } from "./connection.js";
 import { clamp } from "./geometry.js";
-import { Outcome, WidgetJob } from "./job.js";
+import { Outcome, spendsClick, WidgetJob } from "./job.js";
 import { warn } from "./log.js";
 import { solveWidget } from "./solver.js";
-import { idle, SerialQueue } from "./timing.js";
+import { deadlineSignal, idle, SerialQueue } from "./timing.js";
 
 const MIN_TICK_MS = 50;
 const MAX_TICK_MS = 1000;
 
 const lifecycles = new SerialQueue();
-
-function allowsTeardown(error) {
-	return !isFatal(error) && !(error instanceof CommandTimeoutError);
-}
 
 export class Tab {
 	#jobs = new Map();
@@ -22,16 +18,19 @@ export class Tab {
 	#connection = null;
 	#running = false;
 	#onIdle;
+	#budget;
 	#attach;
 	#solve;
 
 	constructor(
 		id,
 		onIdle,
+		budget,
 		{ attach = (tabId) => DebuggerConnection.attach(tabId), solve = solveWidget } = {},
 	) {
 		this.id = id;
 		this.#onIdle = onIdle;
+		this.#budget = budget;
 		this.#attach = attach;
 		this.#solve = solve;
 	}
@@ -113,16 +112,12 @@ export class Tab {
 		}
 
 		this.#connection = connection;
-		let graceful = true;
 		try {
 			this.#lifetime.signal.throwIfAborted();
 			await connection.initialize();
 			await this.#process(connection);
-		} catch (error) {
-			graceful = allowsTeardown(error);
-			throw error;
 		} finally {
-			await connection.close({ graceful });
+			await connection.close();
 			this.#connection = null;
 		}
 	}
@@ -149,6 +144,11 @@ export class Tab {
 					this.#drop(job);
 					continue;
 				}
+				if (!this.#budget.allows(this.id, now)) {
+					warn(`Tab ${this.id} has used up its clicks for now:`, job.widgetId);
+					this.#drop(job);
+					continue;
+				}
 
 				await this.#attempt(connection, job);
 			}
@@ -158,11 +158,8 @@ export class Tab {
 	}
 
 	async #attempt(connection, job) {
-		const signal = AbortSignal.any([
-			this.#lifetime.signal,
-			job.signal,
-			AbortSignal.timeout(Math.max(0, job.deadline - Date.now())),
-		]);
+		const expiry = deadlineSignal(() => job.deadline);
+		const signal = AbortSignal.any([this.#lifetime.signal, job.signal, expiry.signal]);
 
 		let outcome = Outcome.MISSED;
 		try {
@@ -170,8 +167,11 @@ export class Tab {
 		} catch (error) {
 			if (isFatal(error)) throw error;
 			if (!signal.aborted) warn("Widget attempt failed:", error);
+		} finally {
+			expiry.dispose();
 		}
 		job.record(outcome);
+		if (spendsClick(outcome)) this.#budget.spend(this.id);
 	}
 
 	#nextTickDelay() {

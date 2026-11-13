@@ -9,7 +9,7 @@ import {
 	sameSize,
 	visibleBounds,
 } from "./geometry.js";
-import { hostsChallenge } from "./locator.js";
+import { attribute, hostsChallenge } from "./locator.js";
 import { jitter } from "./random.js";
 
 const MIN_WIDGET_WIDTH = 80;
@@ -23,6 +23,8 @@ const CHECKBOX_OFFSET = {
 	missStep: 0.02,
 	maxMissShift: 0.08,
 };
+
+const styledSessions = new WeakSet();
 
 function isRendered(computedStyle) {
 	const style = Object.fromEntries(computedStyle.map(({ name, value }) => [name, value]));
@@ -54,10 +56,19 @@ function cssContentSize(model) {
 	};
 }
 
+async function computedStyleOf(session, nodeId) {
+	if (!styledSessions.has(session)) {
+		await session.send("CSS.enable");
+		styledSessions.add(session);
+	}
+	const { computedStyle = [] } = await session.send("CSS.getComputedStyleForNode", { nodeId });
+	return computedStyle;
+}
+
 async function measureFrame(session, nodeId) {
-	const [box, { computedStyle = [] }, metrics] = await Promise.all([
+	const [box, computedStyle, metrics] = await Promise.all([
 		tolerate(session.send("DOM.getBoxModel", { nodeId }), null),
-		session.send("CSS.getComputedStyleForNode", { nodeId }),
+		computedStyleOf(session, nodeId),
 		session.send("Page.getLayoutMetrics"),
 	]);
 	const model = box?.model;
@@ -106,22 +117,34 @@ async function frameOwner(session, frameId) {
 	return nodeIds[0] ? { frameId, backendNodeId, nodeId: nodeIds[0] } : null;
 }
 
-export function checkboxPoint(quad, layoutWidth, misses) {
+async function isRightToLeft(connection, frameId) {
+	const session = connection.sessionForTarget(frameId);
+	if (!session) return false;
+
+	await session.ready;
+	const { root } = await session.send("DOM.getDocument", { depth: 1 });
+	const html = root.children?.find((node) => node.nodeName === "HTML");
+	return html !== undefined && attribute(html, "dir") === "rtl";
+}
+
+export function checkboxPoint(quad, layoutWidth, misses, rightToLeft = false) {
 	const { maxPx, ratio, missStep, maxMissShift } = CHECKBOX_OFFSET;
 	const shift = Math.min(misses * missStep, maxMissShift);
-	const u = Math.min(maxPx / layoutWidth, ratio + shift);
+	const fromNearEdge = Math.min(maxPx / layoutWidth, ratio + shift);
+	const u = rightToLeft ? 1 - fromNearEdge : fromNearEdge;
 	const v = misses % 2 === 0 ? 0.5 : 0.54;
 	return quadPoint(quad, u, v);
 }
 
-async function chooseTarget({ session, frame }, misses) {
+async function chooseTarget(connection, { session, frame }, misses) {
 	const geometry = await measureFrame(session, frame.nodeId);
 	if (!geometry) return null;
 
 	const { width, height } = quadSize(geometry.quad);
 	if (width < MIN_WIDGET_WIDTH || height < MIN_WIDGET_HEIGHT) return null;
 
-	const anchor = checkboxPoint(geometry.quad, geometry.size.width, misses);
+	const rightToLeft = await isRightToLeft(connection, frame.frameId);
+	const anchor = checkboxPoint(geometry.quad, geometry.size.width, misses, rightToLeft);
 	const point = { x: anchor.x + jitter(2), y: anchor.y + jitter(3) };
 	if (!isInViewport(point, geometry.viewport)) return null;
 	if (!(await hitsFrame(session, point, geometry.viewport, frame))) return null;
@@ -175,7 +198,7 @@ async function isTargetCurrent(connection, located, leaf, target, watch) {
 }
 
 export async function planClick(connection, located, misses, watch) {
-	const leaf = await chooseTarget(located, misses);
+	const leaf = await chooseTarget(connection, located, misses);
 	if (!leaf) return null;
 
 	const target = await projectToRoot(connection, located, leaf, watch);

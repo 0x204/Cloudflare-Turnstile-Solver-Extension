@@ -38,6 +38,17 @@ describe("WidgetJob", () => {
 		assert.equal(job.misses, 0);
 	});
 
+	it("spends a click on an abandoned approach and retries as after a miss", () => {
+		const job = new WidgetJob("doc:abc", "abc", NOW);
+
+		job.record(Outcome.ABANDONED, NOW);
+		assert.equal(job.exhausted, false);
+		assert.ok(job.nextAttemptAt >= NOW + 525 && job.nextAttemptAt <= NOW + 675);
+
+		job.record(Outcome.ABANDONED, NOW);
+		assert.equal(job.exhausted, true);
+	});
+
 	it("backs off when the widget is not found", () => {
 		const job = new WidgetJob("doc:abc", "abc", NOW);
 		job.record(Outcome.NOT_FOUND, NOW);

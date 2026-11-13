@@ -21,6 +21,19 @@ describe("checkboxPoint", () => {
 		assert.ok(Math.abs(point.x - (100 + 35 * 0.7)) < 1e-9, `x=${point.x}`);
 	});
 
+	it("aims at the same offset from the right edge of a right-to-left widget", () => {
+		const point = checkboxPoint(rect(0, 0, 300, 65), 300, 0, true);
+		assert.equal(point.x, 265);
+		assert.equal(point.y, 32.5);
+	});
+
+	it("keeps that offset on wide widgets after misses", () => {
+		const first = checkboxPoint(rect(0, 0, 300, 65), 300, 0);
+		const later = checkboxPoint(rect(0, 0, 300, 65), 300, 3);
+		assert.equal(later.x, first.x);
+		assert.notEqual(later.y, first.y);
+	});
+
 	it("stays inside narrow widgets and moves right after misses", () => {
 		const first = checkboxPoint(rect(0, 0, 150, 140), 150, 0);
 		const later = checkboxPoint(rect(0, 0, 150, 140), 150, 3);

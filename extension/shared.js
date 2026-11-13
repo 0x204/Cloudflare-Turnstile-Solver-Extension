@@ -11,7 +11,7 @@
 	const BEGIN_EVENT = "interactiveBegin";
 	const WIDGET_ID_PATTERN = /^[\w.:-]{1,128}$/;
 
-	const KNOWN_TERMINAL_EVENTS = new Set([
+	const TERMINAL_EVENTS = new Set([
 		"complete",
 		"error",
 		"expired",
@@ -26,24 +26,6 @@
 		"timeout",
 		"tokenExpired",
 		"widgetStale",
-	]);
-
-	const KNOWN_PROGRESS_EVENTS = new Set(["reloadApiJsRequest"]);
-
-	const TERMINAL_WORDS = new Set([
-		"complete",
-		"completed",
-		"error",
-		"expired",
-		"fail",
-		"failed",
-		"failure",
-		"refresh",
-		"reject",
-		"rejected",
-		"reload",
-		"stale",
-		"timeout",
 	]);
 
 	const Action = Object.freeze({
@@ -63,14 +45,8 @@
 		return `cf-chl-widget-${widgetId}`;
 	}
 
-	function splitWords(name) {
-		return name.split(/[-_]|(?<=[a-z\d])(?=[A-Z])/).map((word) => word.toLowerCase());
-	}
-
 	function isTerminalEvent(name) {
-		if (KNOWN_TERMINAL_EVENTS.has(name)) return true;
-		if (KNOWN_PROGRESS_EVENTS.has(name)) return false;
-		return splitWords(name).some((word) => TERMINAL_WORDS.has(word));
+		return TERMINAL_EVENTS.has(name);
 	}
 
 	function parseChallengeMessage(event, ownWindow) {

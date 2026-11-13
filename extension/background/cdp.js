@@ -2,7 +2,7 @@ import { withTimeout } from "./timing.js";
 
 export const PROTOCOL_VERSION = "1.3";
 
-const COMMAND_TIMEOUT_MS = 5000;
+export const COMMAND_TIMEOUT_MS = 5000;
 const TARGET_GONE = /No tab|not attached|Detached while handling|target closed/i;
 const SESSION_GONE =
 	/No session with given id|Session with given id (?:not found|does not exist)|session closed/i;
