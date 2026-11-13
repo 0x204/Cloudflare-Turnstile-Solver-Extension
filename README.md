@@ -73,3 +73,7 @@ test/
 ## Disclaimer
 
 Use the extension only where automating the challenge is allowed. You are responsible for following the terms of service of the sites you visit and of Cloudflare.
+
+## License
+
+[MIT](LICENSE)
